@@ -98,15 +98,9 @@ const S = {
   muted: { color: '#6b7280', fontSize: 13 },
   err: { color: '#dc2626', fontSize: 13, marginBottom: 8 },
   subTabs: { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  h3b: { fontSize: 22, fontWeight: 800, color: '#111827', margin: '26px 0 12px' },
+  segBtn: (active) => ({ padding: '8px 16px', borderRadius: 8, border: 0, fontSize: 14, cursor: 'pointer', fontWeight: 700, fontFamily: 'inherit', background: active ? '#fff' : 'transparent', color: active ? GREEN : '#4b5563', boxShadow: active ? '0 1px 2px rgba(0,0,0,.08)' : 'none' }),
 };
-
-function SubBtn({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{ ...S.btn, fontSize: 14, padding: '8px 14px', background: active ? GREEN : '#e5e7eb', color: active ? '#fff' : '#374151' }}>
-      {children}
-    </button>
-  );
-}
 
 export default function Page() {
   const [doc, setDoc] = useState({ items: [], masuk: [], keluar: [] });
@@ -129,6 +123,8 @@ export default function Page() {
   const [fTanggal, setFTanggal] = useState(today());
   const [fKet, setFKet] = useState('');
   const [rekapMode, setRekapMode] = useState('minggu');
+  const [rekapTahun, setRekapTahun] = useState(new Date().getFullYear());
+  const [periodeAktif, setPeriodeAktif] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -208,6 +204,15 @@ export default function Page() {
     save({ ...doc, items: doc.items.filter(i => i.id !== id) });
   };
 
+  const hapusCatatan = (jenis, id) => {
+    if (!confirm('Hapus catatan ini? Stok barang akan disesuaikan kembali.')) return;
+    const list = jenis === 'masuk' ? doc.masuk : doc.keluar;
+    const e = list.find(x => x.id === id);
+    if (!e) return;
+    const items = doc.items.map(i => i.id === e.itemId ? { ...i, stok: Math.max(0, i.stok + (jenis === 'masuk' ? -e.jumlah : e.jumlah)) } : i);
+    save({ ...doc, items, [jenis]: list.filter(x => x.id !== id) });
+  };
+
   const catat = (jenis) => {
     const jumlah = parseInt(fJumlah);
     if (!fItem) return setErr('Pilih barang dulu.');
@@ -235,32 +240,60 @@ export default function Page() {
     };
   }, [doc]);
 
-  const rekap = useMemo(() => {
-    const now = new Date();
-    const inRange = (tgl) => {
+  const dayOfYear = (d) => Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
+  const weekOf = (d) => Math.ceil(dayOfYear(d) / 7);
+  const weekRange = (year, w) => {
+    const f = (d) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    const start = new Date(year, 0, (w - 1) * 7 + 1);
+    const end = new Date(year, 0, Math.min(w * 7, dayOfYear(new Date(year, 11, 31))));
+    return `${f(start)}–${f(end)}`;
+  };
+  const labelPeriode = (key) => {
+    if (key[0] === 'w') return `Minggu ${key.slice(1)}`;
+    return new Date(rekapTahun, +key.slice(1), 1).toLocaleDateString('id-ID', { month: 'long' });
+  };
+
+  const tahunTersedia = useMemo(() => {
+    const ys = new Set([new Date().getFullYear()]);
+    [...doc.masuk, ...doc.keluar].forEach(e => ys.add(new Date(e.tanggal + 'T00:00:00').getFullYear()));
+    return [...ys].sort((a, b) => b - a);
+  }, [doc]);
+
+  const rekapTahunData = useMemo(() => {
+    const inYear = (e) => new Date(e.tanggal + 'T00:00:00').getFullYear() === rekapTahun;
+    const masuk = doc.masuk.filter(inYear), keluar = doc.keluar.filter(inYear);
+    const keyOf = (tgl) => {
       const d = new Date(tgl + 'T00:00:00');
-      if (rekapMode === 'minggu') { const a = new Date(now); a.setDate(a.getDate() - 6); a.setHours(0,0,0,0); return d >= a && d <= now; }
-      if (rekapMode === 'bulan') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      return d.getFullYear() === now.getFullYear();
+      return rekapMode === 'minggu' ? 'w' + weekOf(d) : 'm' + d.getMonth();
+    };
+    const per = {};
+    const slot = (k) => (per[k] = per[k] || { trxMasuk: 0, totMasuk: 0, trxKeluar: 0, totKeluar: 0 });
+    masuk.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxMasuk++; s.totMasuk += e.jumlah; });
+    keluar.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxKeluar++; s.totKeluar += e.jumlah; });
+    const rows = Object.entries(per)
+      .map(([key, v]) => ({ key, ...v, selisih: v.totMasuk - v.totKeluar }))
+      .sort((a, b) => parseInt(a.key.slice(1), 10) - parseInt(b.key.slice(1), 10));
+    const totMasuk = masuk.reduce((a, e) => a + e.jumlah, 0);
+    const totKeluar = keluar.reduce((a, e) => a + e.jumlah, 0);
+    return { totMasuk, totKeluar, selisih: totMasuk - totKeluar, trx: masuk.length + keluar.length, rows };
+  }, [doc, rekapMode, rekapTahun]);
+
+  const rincian = useMemo(() => {
+    if (!periodeAktif || periodeAktif.tahun !== rekapTahun || periodeAktif.mode !== rekapMode) return null;
+    const inPer = (tgl) => {
+      const d = new Date(tgl + 'T00:00:00');
+      if (d.getFullYear() !== rekapTahun) return false;
+      const k = rekapMode === 'minggu' ? 'w' + weekOf(d) : 'm' + d.getMonth();
+      return k === periodeAktif.key;
     };
     const map = {};
-    doc.items.forEach(i => { map[i.id] = { nama: i.nama, masuk: 0, keluar: 0, stok: i.stok }; });
-    doc.masuk.filter(e => inRange(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += e.jumlah; });
-    doc.keluar.filter(e => inRange(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += e.jumlah; });
-    return Object.values(map);
-  }, [doc, rekapMode]);
-
-  const listRow = (e, jenis) => (
-    <div key={e.id} style={S.row}>
-      <div>
-        <div style={{ fontWeight: 600, color: '#111827' }}>{itemName(e.itemId)}</div>
-        <div style={S.muted}>{fmtDate(e.tanggal)}{e.ket ? ' · ' + e.ket : ''}</div>
-      </div>
-      <div style={{ fontWeight: 700, color: jenis === 'masuk' ? GREEN : '#dc2626', fontFamily: 'ui-monospace, monospace' }}>
-        {jenis === 'masuk' ? '+' : '-'}{e.jumlah}
-      </div>
-    </div>
-  );
+    doc.items.forEach(i => { map[i.id] = { nama: i.nama, kode: i.kode, masuk: 0, keluar: 0 }; });
+    doc.masuk.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += e.jumlah; });
+    doc.keluar.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += e.jumlah; });
+    return Object.values(map)
+      .filter(r => r.masuk > 0 || r.keluar > 0)
+      .map(r => ({ ...r, selisih: r.masuk - r.keluar }));
+  }, [doc, periodeAktif, rekapMode, rekapTahun]);
 
   const menuCards = [
     { id: 'stok', title: 'Stok Barang', desc: 'Kelola daftar barang dan pantau stok gudang terkini.', tile: '#dcfce7', glyph: '📦', count: `${stats.jenis} jenis barang · ${stats.totalUnit} total unit` },
@@ -439,53 +472,204 @@ export default function Page() {
               </div>
             </>)}
 
-            {(tab === 'masuk' || tab === 'keluar') && (
-              <>
-                <div style={S.panel}>
-                  <h3 style={S.h3}>{tab === 'masuk' ? 'Catat Barang Masuk' : 'Catat Barang Keluar'}</h3>
-                  <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
-                    <option value="">— Pilih barang —</option>
-                    {doc.items.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
-                  </select>
-                  <input style={S.input} type="number" min="1" placeholder="Jumlah" value={fJumlah} onChange={e => setFJumlah(e.target.value)} />
-                  <input style={S.input} type="date" value={fTanggal} onChange={e => setFTanggal(e.target.value)} />
-                  <input style={S.input} placeholder="Keterangan (opsional)" value={fKet} onChange={e => setFKet(e.target.value)} />
-                  <button style={{ ...S.btn, background: tab === 'masuk' ? GREEN : '#dc2626', color: '#fff' }} onClick={() => catat(tab)}>Simpan</button>
-                </div>
-                <div style={S.panel}>
-                  <h3 style={S.h3}>Riwayat {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h3>
-                  {(tab === 'masuk' ? doc.masuk : doc.keluar).length === 0 && <div style={S.muted}>Belum ada catatan.</div>}
-                  {(tab === 'masuk' ? doc.masuk : doc.keluar).map(e => listRow(e, tab))}
-                </div>
-              </>
-            )}
+            {(tab === 'masuk' || tab === 'keluar') && (<>
+              <h2 style={S.h2}>{tab === 'masuk' ? 'Barang Masuk' : 'Barang Keluar'}</h2>
+              <p style={S.lead2}>
+                {tab === 'masuk'
+                  ? 'Catat barang yang diterima gudang. Stok barang akan bertambah otomatis sesuai jumlah yang dicatat.'
+                  : 'Catat barang yang dikeluarkan dari gudang. Stok barang akan berkurang otomatis sesuai jumlah yang dicatat.'}
+              </p>
 
-            {tab === 'rekap' && (
               <div style={S.panel}>
-                <h3 style={S.h3}>Rekap</h3>
-                <div style={S.subTabs}>
-                  <SubBtn active={rekapMode === 'minggu'} onClick={() => setRekapMode('minggu')}>Mingguan</SubBtn>
-                  <SubBtn active={rekapMode === 'bulan'} onClick={() => setRekapMode('bulan')}>Bulanan</SubBtn>
-                  <SubBtn active={rekapMode === 'tahun'} onClick={() => setRekapMode('tahun')}>Tahunan</SubBtn>
+                <h3 style={S.h3}>{tab === 'masuk' ? 'Catat Barang Masuk' : 'Catat Barang Keluar'}</h3>
+                <p style={{ ...S.muted, margin: '-8px 0 14px', fontSize: 14 }}>
+                  {tab === 'masuk'
+                    ? 'Pilih barang, isi jumlah dan tanggal penerimaan.'
+                    : 'Pilih barang, isi jumlah dan tanggal pengeluaran. Jumlah tidak boleh melebihi stok yang tersedia.'}
+                </p>
+                <label style={S.label}>Barang</label>
+                <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
+                  {doc.items.length === 0
+                    ? <option value="">— Belum ada barang, tambahkan dulu di menu Stok Barang —</option>
+                    : <>
+                      <option value="">— Pilih barang —</option>
+                      {doc.items.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
+                    </>}
+                </select>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+                  <div>
+                    <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}</label>
+                    <input style={S.input} type="number" min="1" placeholder={tab === 'masuk' ? 'mis. 50' : 'mis. 10'} value={fJumlah} onChange={e => setFJumlah(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={S.label}>{tab === 'masuk' ? 'Tanggal Masuk' : 'Tanggal Keluar'}</label>
+                    <input style={S.input} type="date" value={fTanggal} onChange={e => setFTanggal(e.target.value)} />
+                  </div>
                 </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr>
-                    <th style={S.th}>Barang</th><th style={S.th}>Masuk</th><th style={S.th}>Keluar</th><th style={S.th}>Stok</th>
-                  </tr></thead>
-                  <tbody>
-                    {rekap.map((r, i) => (
-                      <tr key={i}>
-                        <td style={S.td}>{r.nama}</td>
-                        <td style={{ ...S.td, color: GREEN, fontFamily: 'ui-monospace, monospace' }}>+{r.masuk}</td>
-                        <td style={{ ...S.td, color: '#dc2626', fontFamily: 'ui-monospace, monospace' }}>-{r.keluar}</td>
-                        <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.stok}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {rekap.length === 0 && <div style={S.muted}>Belum ada barang.</div>}
+                <label style={S.label}>Keterangan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
+                <input
+                  style={S.input}
+                  placeholder={tab === 'masuk' ? 'mis. Kiriman dari pemasok, no. surat jalan' : 'mis. Dikirim ke toko cabang, diambil kurir'}
+                  value={fKet} onChange={e => setFKet(e.target.value)}
+                />
+                <button style={{ ...S.btn, background: GREEN, color: '#fff', marginTop: 4 }} onClick={() => catat(tab)}>
+                  {tab === 'masuk' ? 'Simpan Barang Masuk' : 'Simpan Barang Keluar'}
+                </button>
               </div>
-            )}
+
+              <h3 style={S.h3b}>Riwayat {tab === 'masuk' ? 'Barang Masuk' : 'Barang Keluar'}</h3>
+              <div style={S.tableCard}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                    <thead><tr>
+                      <th style={S.th}>Tanggal</th>
+                      <th style={S.th}>Barang</th>
+                      <th style={S.th}>Jumlah</th>
+                      <th style={S.th}>Keterangan</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Aksi</th>
+                    </tr></thead>
+                    <tbody>
+                      {(tab === 'masuk' ? doc.masuk : doc.keluar).map(e => (
+                        <tr key={e.id}>
+                          <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{fmtDate(e.tanggal)}</td>
+                          <td style={{ ...S.td, fontWeight: 600 }}>{itemName(e.itemId)}</td>
+                          <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: tab === 'masuk' ? GREEN : '#dc2626' }}>
+                            {tab === 'masuk' ? '+' : '-'}{e.jumlah}
+                          </td>
+                          <td style={S.td}>{e.ket || '—'}</td>
+                          <td style={{ ...S.td, textAlign: 'right' }}>
+                            <button
+                              style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '6px 12px', fontSize: 13 }}
+                              onClick={() => hapusCatatan(tab, e.id)}
+                            >Hapus</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {(tab === 'masuk' ? doc.masuk : doc.keluar).length === 0 && (
+                  <div style={{ padding: '44px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>
+                      {tab === 'masuk' ? 'Belum ada catatan barang masuk' : 'Belum ada catatan barang keluar'}
+                    </div>
+                    <div style={S.muted}>
+                      {tab === 'masuk' ? 'Catatan akan muncul di sini setelah barang masuk disimpan.' : 'Catatan akan muncul di sini setelah barang keluar disimpan.'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>)}
+
+            {tab === 'rekap' && (<>
+              <h2 style={S.h2}>Rekap Stok</h2>
+              <p style={S.lead2}>Ringkasan pergerakan barang masuk dan keluar per minggu, serta per bulan dalam satu tahun. Klik salah satu baris periode untuk melihat rincian per barang pada periode itu.</p>
+
+              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
+                  <button style={S.segBtn(rekapMode === 'minggu')} onClick={() => { setRekapMode('minggu'); setPeriodeAktif(null); }}>Per Minggu</button>
+                  <button style={S.segBtn(rekapMode === 'bulan')} onClick={() => { setRekapMode('bulan'); setPeriodeAktif(null); }}>Per Bulan</button>
+                </div>
+                <div>
+                  <label style={{ ...S.label, marginBottom: 6 }}>Tahun</label>
+                  <select style={{ ...S.input, marginBottom: 0, width: 'auto', minWidth: 150 }} value={rekapTahun} onChange={e => { setRekapTahun(+e.target.value); setPeriodeAktif(null); }}>
+                    {tahunTersedia.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={S.statGrid}>
+                {[
+                  ['TOTAL MASUK', `${rekapTahunData.totMasuk} unit`],
+                  ['TOTAL KELUAR', `${rekapTahunData.totKeluar} unit`],
+                  ['SELISIH BERSIH', `${rekapTahunData.selisih} unit`],
+                  ['JUMLAH TRANSAKSI', `${rekapTahunData.trx}`],
+                ].map(([label, val]) => (
+                  <div key={label} style={S.stat}>
+                    <div style={S.statLabel}>{label}</div>
+                    <div style={S.statVal}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={S.tableCard}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+                    <thead><tr>
+                      <th style={S.th}>{rekapMode === 'minggu' ? 'Minggu' : 'Bulan'}</th>
+                      <th style={S.th}>Trx Masuk</th>
+                      <th style={S.th}>Total Masuk</th>
+                      <th style={S.th}>Trx Keluar</th>
+                      <th style={S.th}>Total Keluar</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Selisih</th>
+                    </tr></thead>
+                    <tbody>
+                      {rekapTahunData.rows.map(r => {
+                        const aktif = periodeAktif && periodeAktif.key === r.key;
+                        return (
+                          <tr key={r.key}
+                            onClick={() => setPeriodeAktif({ mode: rekapMode, tahun: rekapTahun, key: r.key })}
+                            style={{ cursor: 'pointer', background: aktif ? '#f0fdf4' : undefined }}>
+                            <td style={{ ...S.td, fontWeight: 600 }}>
+                              {labelPeriode(r.key)}
+                              {rekapMode === 'minggu' && <span style={{ ...S.muted, fontWeight: 400 }}> · {weekRange(rekapTahun, +r.key.slice(1))}</span>}
+                            </td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace' }}>{r.trxMasuk}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN, fontWeight: 600 }}>+{r.totMasuk}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace' }}>{r.trxKeluar}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626', fontWeight: 600 }}>-{r.totKeluar}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{r.selisih}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {rekapTahunData.rows.length === 0 && (
+                  <div style={{ padding: '44px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada transaksi pada tahun ini</div>
+                    <div style={S.muted}>Rekap akan muncul setelah ada catatan barang masuk atau keluar pada tahun yang dipilih.</div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ ...S.panel, marginTop: 16 }}>
+                <h3 style={S.h3}>Rincian per Barang</h3>
+                {!rincian && <p style={{ ...S.muted, margin: 0 }}>Belum ada periode yang dapat ditampilkan pada tahun ini.</p>}
+                {rincian && (<>
+                  <p style={{ ...S.muted, margin: '-8px 0 12px', fontSize: 14 }}>
+                    Periode: <strong style={{ color: '#111827' }}>{labelPeriode(periodeAktif.key)}</strong>
+                    {rekapMode === 'minggu' && ` · ${weekRange(rekapTahun, +periodeAktif.key.slice(1))}`} · Tahun {rekapTahun}
+                  </p>
+                  <div style={S.tableCard}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>
+                        <th style={S.th}>Barang</th>
+                        <th style={S.th}>Masuk</th>
+                        <th style={S.th}>Keluar</th>
+                        <th style={{ ...S.th, textAlign: 'right' }}>Selisih</th>
+                      </tr></thead>
+                      <tbody>
+                        {rincian.map((r, i) => (
+                          <tr key={i}>
+                            <td style={{ ...S.td, fontWeight: 600 }}>{r.kode ? r.kode + ' · ' : ''}{r.nama}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN }}>+{r.masuk}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626' }}>-{r.keluar}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{r.selisih}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {rincian.length === 0 && (
+                      <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: '#111827', marginBottom: 8 }}>Tidak ada pergerakan barang</div>
+                        <div style={S.muted}>Pada periode ini belum ada catatan barang masuk atau keluar.</div>
+                      </div>
+                    )}
+                  </div>
+                </>)}
+              </div>
+            </>)}
 
           </>)}
         </div>
