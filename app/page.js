@@ -71,6 +71,10 @@ const S = {
   main: { background: '#f3f4f6', minHeight: 'calc(100vh - 65px)' },
   col: { maxWidth: 1080, margin: '0 auto', padding: '28px 16px 40px' },
   h1: { fontSize: 30, fontWeight: 800, color: '#111827', margin: '0 0 6px' },
+  h2: { fontSize: 28, fontWeight: 800, color: '#111827', margin: '0 0 6px' },
+  lead2: { color: '#4b5563', fontSize: 15, margin: '0 0 20px' },
+  label: { display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 },
+  tableCard: { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, boxShadow: '0 1px 2px rgba(0,0,0,.05)', overflow: 'hidden' },
   companyUnder: { fontSize: 12, fontWeight: 700, letterSpacing: 1.5, color: '#374151', marginTop: 8, textAlign: 'center' },
   lead: { color: '#4b5563', fontSize: 15, margin: '0 0 24px', maxWidth: 640 },
   cardGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 },
@@ -89,7 +93,7 @@ const S = {
   input: { width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'inherit' },
   btn: { padding: '10px 18px', borderRadius: 8, border: 0, fontSize: 15, cursor: 'pointer', fontWeight: 700, fontFamily: 'inherit' },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f3f4f6' },
-  th: { textAlign: 'left', padding: '10px 8px', fontSize: 12, fontWeight: 700, letterSpacing: .5, color: '#6b7280', borderBottom: '2px solid #e5e7eb', textTransform: 'uppercase' },
+  th: { textAlign: 'left', padding: '10px 8px', fontSize: 12, fontWeight: 700, letterSpacing: .5, color: '#6b7280', borderBottom: '2px solid #e5e7eb', textTransform: 'uppercase', background: '#f7f8f5' },
   td: { padding: '10px 8px', fontSize: 14, borderBottom: '1px solid #f3f4f6', color: '#1f2937' },
   muted: { color: '#6b7280', fontSize: 13 },
   err: { color: '#dc2626', fontSize: 13, marginBottom: 8 },
@@ -111,8 +115,15 @@ export default function Page() {
   const [tab, setTab] = useState('beranda');
   const [err, setErr] = useState('');
 
-  const [namaBaru, setNamaBaru] = useState('');
-  const [stokAwal, setStokAwal] = useState('');
+  const [cari, setCari] = useState('');
+  const [tampilForm, setTampilForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [fKode, setFKode] = useState('');
+  const [fSatuan, setFSatuan] = useState('');
+  const [fNama, setFNama] = useState('');
+  const [fStokAwal, setFStokAwal] = useState('0');
+  const [fStokMin, setFStokMin] = useState('0');
+  const [fLokasi, setFLokasi] = useState('');
   const [fItem, setFItem] = useState('');
   const [fJumlah, setFJumlah] = useState('');
   const [fTanggal, setFTanggal] = useState(today());
@@ -139,13 +150,56 @@ export default function Page() {
     setSaving(false);
   };
 
-  const itemName = (id) => (doc.items.find(i => i.id === id) || {}).nama || '(dihapus)';
+  const itemName = (id) => {
+    const it = doc.items.find(i => i.id === id);
+    if (!it) return '(dihapus)';
+    return it.kode ? `${it.kode} · ${it.nama}` : it.nama;
+  };
 
-  const tambahBarang = () => {
-    const nama = namaBaru.trim();
+  const statusOf = (it) => {
+    const stok = it.stok || 0, min = it.stokMin || 0;
+    if (stok <= 0) return { t: 'Habis', bg: '#fee2e2', fg: '#b91c1c' };
+    if (stok <= min) return { t: 'Menipis', bg: '#fef3c7', fg: '#b45309' };
+    return { t: 'Tersedia', bg: '#dcfce7', fg: '#15803d' };
+  };
+  const statusBadge = (it) => {
+    const s = statusOf(it);
+    return <span style={{ background: s.bg, color: s.fg, fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999 }}>{s.t}</span>;
+  };
+
+  const stokTampil = doc.items.filter(it => {
+    const q = cari.trim().toLowerCase();
+    if (!q) return true;
+    return (it.nama || '').toLowerCase().includes(q) || (it.kode || '').toLowerCase().includes(q);
+  });
+
+  const resetForm = () => {
+    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setEditId(null);
+  };
+  const bukaFormTambah = () => { resetForm(); setTampilForm(true); };
+  const bukaFormEdit = (it) => {
+    setEditId(it.id);
+    setFKode(it.kode || ''); setFSatuan(it.satuan || ''); setFNama(it.nama || '');
+    setFStokAwal(String(it.stok ?? 0)); setFStokMin(String(it.stokMin ?? 0)); setFLokasi(it.lokasi || '');
+    setTampilForm(true);
+  };
+  const tutupForm = () => { setTampilForm(false); resetForm(); };
+
+  const simpanBarang = () => {
+    const nama = fNama.trim();
     if (!nama) return setErr('Nama barang wajib diisi.');
-    const next = { ...doc, items: [...doc.items, { id: uid(), nama, stok: Math.max(0, parseInt(stokAwal) || 0) }] };
-    setNamaBaru(''); setStokAwal('');
+    const data = {
+      kode: fKode.trim(),
+      satuan: fSatuan.trim(),
+      nama,
+      stok: Math.max(0, parseInt(fStokAwal) || 0),
+      stokMin: Math.max(0, parseInt(fStokMin) || 0),
+      lokasi: fLokasi.trim(),
+    };
+    const next = editId
+      ? { ...doc, items: doc.items.map(i => i.id === editId ? { ...i, ...data } : i) }
+      : { ...doc, items: [...doc.items, { id: uid(), ...data }] };
+    tutupForm();
     save(next);
   };
 
@@ -286,25 +340,104 @@ export default function Page() {
               </div>
             </>)}
 
-            {tab === 'stok' && (
-              <div style={S.panel}>
-                <h3 style={S.h3}>Tambah Barang</h3>
-                <input style={S.input} placeholder="Nama barang" value={namaBaru} onChange={e => setNamaBaru(e.target.value)} />
-                <input style={S.input} placeholder="Stok awal (opsional)" type="number" min="0" value={stokAwal} onChange={e => setStokAwal(e.target.value)} />
-                <button style={{ ...S.btn, background: GREEN, color: '#fff' }} onClick={tambahBarang}>+ Tambah</button>
-                <h3 style={{ ...S.h3, marginTop: 20 }}>Daftar Stok</h3>
-                {doc.items.length === 0 && <div style={S.muted}>Belum ada barang.</div>}
-                {doc.items.map(i => (
-                  <div key={i.id} style={S.row}>
-                    <div style={{ fontWeight: 600, color: '#111827' }}>{i.nama}</div>
+            {tab === 'stok' && (<>
+              <h2 style={S.h2}>Stok Barang</h2>
+              <p style={S.lead2}>Daftar seluruh barang yang tersimpan di gudang beserta jumlah stok saat ini.</p>
+
+              <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 480 }}>
+                  <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 15 }}>⌕</span>
+                  <input
+                    style={{ ...S.input, marginBottom: 0, paddingLeft: 38 }}
+                    placeholder="Cari nama atau kode barang..."
+                    value={cari} onChange={e => setCari(e.target.value)}
+                  />
+                </div>
+                <button style={{ ...S.btn, background: GREEN, color: '#fff', marginLeft: 'auto' }} onClick={bukaFormTambah}>+ Tambah Barang</button>
+              </div>
+
+              {tampilForm && (
+                <div style={S.panel}>
+                  <h3 style={S.h3}>{editId ? 'Edit Barang' : 'Tambah Barang Baru'}</h3>
+                  <p style={{ ...S.muted, margin: '-8px 0 14px' }}>Isi data barang di bawah ini, lalu simpan.</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                     <div>
-                      <span style={{ fontWeight: 700, marginRight: 12, fontFamily: 'ui-monospace, monospace' }}>{i.stok}</span>
-                      <button style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '6px 12px', fontSize: 13 }} onClick={() => hapusBarang(i.id)}>Hapus</button>
+                      <label style={S.label}>Kode Barang</label>
+                      <input style={S.input} placeholder="BRG-001" value={fKode} onChange={e => setFKode(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={S.label}>Satuan</label>
+                      <input style={S.input} placeholder="pcs, dus, kg, liter" value={fSatuan} onChange={e => setFSatuan(e.target.value)} />
                     </div>
                   </div>
-                ))}
+                  <label style={S.label}>Nama Barang</label>
+                  <input style={S.input} placeholder="Beras Premium 5 kg" value={fNama} onChange={e => setFNama(e.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+                    <div>
+                      <label style={S.label}>Stok Awal</label>
+                      <input style={S.input} type="number" min="0" value={fStokAwal} onChange={e => setFStokAwal(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={S.label}>Stok Minimum</label>
+                      <input style={S.input} type="number" min="0" value={fStokMin} onChange={e => setFStokMin(e.target.value)} />
+                      <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
+                        Barang ditandai &lsquo;Menipis&rsquo; bila stok mencapai angka ini atau di bawahnya.
+                      </div>
+                    </div>
+                  </div>
+                  <label style={S.label}>Lokasi di Gudang (boleh kosong)</label>
+                  <input style={S.input} placeholder="Rak A1, Blok B" value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <button style={{ ...S.btn, background: GREEN, color: '#fff' }} onClick={simpanBarang}>Simpan Barang</button>
+                    <button style={{ ...S.btn, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }} onClick={tutupForm}>Batal</button>
+                  </div>
+                </div>
+              )}
+
+              <div style={S.tableCard}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+                    <thead><tr>
+                      <th style={S.th}>Kode</th>
+                      <th style={S.th}>Nama Barang</th>
+                      <th style={S.th}>Lokasi</th>
+                      <th style={S.th}>Stok</th>
+                      <th style={S.th}>Satuan</th>
+                      <th style={S.th}>Status</th>
+                      <th style={{ ...S.th, textAlign: 'right' }}>Aksi</th>
+                    </tr></thead>
+                    <tbody>
+                      {stokTampil.map(it => (
+                        <tr key={it.id}>
+                          <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#374151' }}>{it.kode || '—'}</td>
+                          <td style={{ ...S.td, fontWeight: 600 }}>{it.nama}</td>
+                          <td style={S.td}>{it.lokasi || '—'}</td>
+                          <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{it.stok}</td>
+                          <td style={S.td}>{it.satuan || '—'}</td>
+                          <td style={S.td}>{statusBadge(it)}</td>
+                          <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              style={{ ...S.btn, background: '#e5e7eb', color: '#374151', padding: '6px 12px', fontSize: 13, marginRight: 8 }}
+                              onClick={() => bukaFormEdit(it)}
+                            >Edit</button>
+                            <button
+                              style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '6px 12px', fontSize: 13 }}
+                              onClick={() => hapusBarang(it.id)}
+                            >Hapus</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {stokTampil.length === 0 && (
+                  <div style={{ padding: '44px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada barang</div>
+                    <div style={S.muted}>Klik tombol &ldquo;Tambah Barang&rdquo; untuk memasukkan barang pertama ke gudang.</div>
+                  </div>
+                )}
               </div>
-            )}
+            </>)}
 
             {(tab === 'masuk' || tab === 'keluar') && (
               <>
@@ -312,7 +445,7 @@ export default function Page() {
                   <h3 style={S.h3}>{tab === 'masuk' ? 'Catat Barang Masuk' : 'Catat Barang Keluar'}</h3>
                   <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
                     <option value="">— Pilih barang —</option>
-                    {doc.items.map(i => <option key={i.id} value={i.id}>{i.nama} (stok: {i.stok})</option>)}
+                    {doc.items.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
                   </select>
                   <input style={S.input} type="number" min="1" placeholder="Jumlah" value={fJumlah} onChange={e => setFJumlah(e.target.value)} />
                   <input style={S.input} type="date" value={fTanggal} onChange={e => setFTanggal(e.target.value)} />
