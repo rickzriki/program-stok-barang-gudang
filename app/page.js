@@ -96,6 +96,9 @@ export default function Page() {
   const [err, setErr] = useState('');
 
   const [cari, setCari] = useState('');
+  const [sortStok, setSortStok] = useState('nama-az');
+  const [sortMasuk, setSortMasuk] = useState('tgl-baru');
+  const [sortKeluar, setSortKeluar] = useState('tgl-baru');
   const [tampilForm, setTampilForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [fKode, setFKode] = useState('');
@@ -154,6 +157,27 @@ export default function Page() {
     if (!q) return true;
     return (it.nama || '').toLowerCase().includes(q) || (it.kode || '').toLowerCase().includes(q);
   });
+
+  const stokUrut = useMemo(() => {
+    const arr = [...stokTampil];
+    if (sortStok === 'nama-za') arr.sort((a, b) => (b.nama || '').localeCompare(a.nama || '', 'id'));
+    else if (sortStok === 'stok-desc') arr.sort((a, b) => (b.stok || 0) - (a.stok || 0));
+    else if (sortStok === 'stok-asc') arr.sort((a, b) => (a.stok || 0) - (b.stok || 0));
+    else arr.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+    return arr;
+  }, [stokTampil, sortStok]);
+
+  const urutRiwayat = (list, mode) => {
+    const arr = [...list];
+    if (mode === 'tgl-lama') arr.sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || ''));
+    else if (mode === 'nama-az') arr.sort((a, b) => itemName(a.itemId).localeCompare(itemName(b.itemId), 'id'));
+    else if (mode === 'jml-desc') arr.sort((a, b) => (b.jumlah || 0) - (a.jumlah || 0));
+    else if (mode === 'jml-asc') arr.sort((a, b) => (a.jumlah || 0) - (b.jumlah || 0));
+    else arr.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
+    return arr;
+  };
+  const masukUrut = useMemo(() => urutRiwayat(doc.masuk, sortMasuk), [doc.masuk, sortMasuk]);
+  const keluarUrut = useMemo(() => urutRiwayat(doc.keluar, sortKeluar), [doc.keluar, sortKeluar]);
 
   const resetForm = () => {
     setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setEditId(null);
@@ -372,6 +396,15 @@ export default function Page() {
                     value={cari} onChange={e => setCari(e.target.value)}
                   />
                 </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ ...S.muted, whiteSpace: 'nowrap' }}>Urutkan:</span>
+                  <select style={{ ...S.input, marginBottom: 0, width: 'auto' }} value={sortStok} onChange={e => setSortStok(e.target.value)}>
+                    <option value="nama-az">Nama A–Z</option>
+                    <option value="nama-za">Nama Z–A</option>
+                    <option value="stok-desc">Stok terbanyak</option>
+                    <option value="stok-asc">Stok tersedikit</option>
+                  </select>
+                </div>
                 <button style={{ ...S.btn, background: GREEN, color: '#fff', marginLeft: 'auto' }} onClick={bukaFormTambah}>+ Tambah Barang</button>
               </div>
 
@@ -426,7 +459,7 @@ export default function Page() {
                       <th style={{ ...S.th, textAlign: 'right' }}>Aksi</th>
                     </tr></thead>
                     <tbody>
-                      {stokTampil.map(it => (
+                      {stokUrut.map(it => (
                         <tr key={it.id}>
                           <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#374151' }}>{it.kode || '—'}</td>
                           <td style={{ ...S.td, fontWeight: 600 }}>{it.nama}</td>
@@ -449,7 +482,7 @@ export default function Page() {
                     </tbody>
                   </table>
                 </div>
-                {stokTampil.length === 0 && (
+                {stokUrut.length === 0 && (
                   <div style={{ padding: '44px 20px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada barang</div>
                     <div style={S.muted}>Klik tombol &ldquo;Tambah Barang&rdquo; untuk memasukkan barang pertama ke gudang.</div>
@@ -504,6 +537,22 @@ export default function Page() {
               </div>
 
               <h3 style={S.h3b}>Riwayat {tab === 'masuk' ? 'Barang Masuk' : 'Barang Keluar'}</h3>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ ...S.muted, whiteSpace: 'nowrap' }}>Urutkan:</span>
+                  <select
+                    style={{ ...S.input, marginBottom: 0, width: 'auto' }}
+                    value={tab === 'masuk' ? sortMasuk : sortKeluar}
+                    onChange={e => (tab === 'masuk' ? setSortMasuk : setSortKeluar)(e.target.value)}
+                  >
+                    <option value="tgl-baru">Tanggal terbaru</option>
+                    <option value="tgl-lama">Tanggal terlama</option>
+                    <option value="nama-az">Nama barang A–Z</option>
+                    <option value="jml-desc">Jumlah terbanyak</option>
+                    <option value="jml-asc">Jumlah tersedikit</option>
+                  </select>
+                </div>
+              </div>
               <div style={S.tableCard}>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
@@ -515,7 +564,7 @@ export default function Page() {
                       <th style={{ ...S.th, textAlign: 'right' }}>Aksi</th>
                     </tr></thead>
                     <tbody>
-                      {(tab === 'masuk' ? doc.masuk : doc.keluar).map(e => (
+                      {(tab === 'masuk' ? masukUrut : keluarUrut).map(e => (
                         <tr key={e.id}>
                           <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{fmtDate(e.tanggal)}</td>
                           <td style={{ ...S.td, fontWeight: 600 }}>{itemName(e.itemId)}</td>
