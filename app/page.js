@@ -111,6 +111,7 @@ export default function Page() {
   const [fJumlah, setFJumlah] = useState('');
   const [fTanggal, setFTanggal] = useState(today());
   const [fKet, setFKet] = useState('');
+  const [fOleh, setFOleh] = useState('');
   const [rekapMode, setRekapMode] = useState('minggu');
   const [rekapTahun, setRekapTahun] = useState(new Date().getFullYear());
   const [periodeAktif, setPeriodeAktif] = useState(null);
@@ -230,12 +231,13 @@ export default function Page() {
     const item = doc.items.find(i => i.id === fItem);
     if (!item) return setErr('Barang tidak ditemukan.');
     if (jenis === 'keluar' && item.stok < jumlah) return setErr(`Stok tidak cukup (tersisa ${item.stok}).`);
-    const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim() };
+    if (!fOleh.trim()) return setErr(jenis === 'masuk' ? 'Nama penerima wajib diisi.' : 'Nama pengambil wajib diisi.');
+    const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim() };
     const items = doc.items.map(i => i.id === fItem ? { ...i, stok: i.stok + (jenis === 'masuk' ? jumlah : -jumlah) } : i);
     const next = jenis === 'masuk'
       ? { ...doc, items, masuk: [entry, ...doc.masuk] }
       : { ...doc, items, keluar: [entry, ...doc.keluar] };
-    setFJumlah(''); setFKet(''); setFTanggal(today());
+    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today());
     save(next);
   };
 
@@ -503,8 +505,8 @@ export default function Page() {
                 <h3 style={S.h3}>{tab === 'masuk' ? 'Catat Barang Masuk' : 'Catat Barang Keluar'}</h3>
                 <p style={{ ...S.muted, margin: '-8px 0 14px', fontSize: 14 }}>
                   {tab === 'masuk'
-                    ? 'Pilih barang, isi jumlah dan tanggal penerimaan.'
-                    : 'Pilih barang, isi jumlah dan tanggal pengeluaran. Jumlah tidak boleh melebihi stok yang tersedia.'}
+                    ? 'Pilih barang, isi jumlah, tanggal penerimaan, dan nama penerima.'
+                    : 'Pilih barang, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.'}
                 </p>
                 <label style={S.label}>Barang</label>
                 <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
@@ -525,6 +527,12 @@ export default function Page() {
                     <input style={S.input} type="date" value={fTanggal} onChange={e => setFTanggal(e.target.value)} />
                   </div>
                 </div>
+                <label style={S.label}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'} <span style={{ color: '#dc2626' }}>*</span> <span style={{ ...S.muted, fontWeight: 400 }}>(wajib diisi)</span></label>
+                <input
+                  style={S.input}
+                  placeholder={tab === 'masuk' ? 'mis. Nama penerima barang' : 'mis. Nama yang mengambil barang'}
+                  value={fOleh} onChange={e => setFOleh(e.target.value)}
+                />
                 <label style={S.label}>Keterangan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
                 <input
                   style={S.input}
@@ -555,11 +563,12 @@ export default function Page() {
               </div>
               <div style={S.tableCard}>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                     <thead><tr>
                       <th style={S.th}>Tanggal</th>
                       <th style={S.th}>Barang</th>
                       <th style={S.th}>Jumlah</th>
+                      <th style={S.th}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'}</th>
                       <th style={S.th}>Keterangan</th>
                       <th style={{ ...S.th, textAlign: 'right' }}>Aksi</th>
                     </tr></thead>
@@ -571,6 +580,7 @@ export default function Page() {
                           <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: tab === 'masuk' ? GREEN : '#dc2626' }}>
                             {tab === 'masuk' ? '+' : '-'}{e.jumlah}
                           </td>
+                          <td style={S.td}>{e.oleh || '—'}</td>
                           <td style={S.td}>{e.ket || '—'}</td>
                           <td style={{ ...S.td, textAlign: 'right' }}>
                             <button
