@@ -32,12 +32,9 @@ const IC = {
   rekap: (<svg width="17" height="17" viewBox="0 0 24 24" style={stroke}><path d="M6 20v-7" /><path d="M12 20V5" /><path d="M18 20v-4" /><path d="M3 20h18" /></svg>),
 };
 
-const NAV = [
-  { id: 'beranda', label: 'Beranda', icon: IC.home },
-  { id: 'stok', label: 'Stok Barang', icon: IC.box },
-  { id: 'masuk', label: 'Barang Masuk', icon: IC.masuk },
-  { id: 'keluar', label: 'Barang Keluar', icon: IC.keluar },
-  { id: 'rekap', label: 'Rekap', icon: IC.rekap },
+const KATS = [
+  { id: 'gudang', menu: 'Menu Gudang', objek: 'Barang', objekKecil: 'barang' },
+  { id: 'sparepart', menu: 'Menu Sparepart Mesin', objek: 'Sparepart', objekKecil: 'sparepart' },
 ];
 
 const GREEN = '#15803d';
@@ -93,6 +90,7 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('beranda');
+  const [kategori, setKategori] = useState('gudang');
   const [err, setErr] = useState('');
 
   const [cari, setCari] = useState('');
@@ -147,6 +145,30 @@ export default function Page() {
     return it.kode ? `${it.kode} · ${it.nama}` : it.nama;
   };
 
+  const itemById = useMemo(() => {
+    const map = {};
+    doc.items.forEach(i => { map[i.id] = i; });
+    return map;
+  }, [doc.items]);
+  const kategoriItem = (it) => (it && it.kategori === 'sparepart' ? 'sparepart' : 'gudang');
+  const kategoriEntri = (e) => {
+    if (e && (e.kategori === 'sparepart' || e.kategori === 'gudang')) return e.kategori;
+    return kategoriItem(itemById[e ? e.itemId : '']);
+  };
+  const katInfo = KATS.find(k => k.id === kategori) || KATS[0];
+  const labelObjek = katInfo.objek;
+  const namaObjek = katInfo.objekKecil;
+  const itemsAktif = useMemo(() => doc.items.filter(it => kategoriItem(it) === kategori), [doc.items, kategori]);
+  const masukAktif = useMemo(() => doc.masuk.filter(e => kategoriEntri(e) === kategori), [doc.masuk, doc.items, kategori]);
+  const keluarAktif = useMemo(() => doc.keluar.filter(e => kategoriEntri(e) === kategori), [doc.keluar, doc.items, kategori]);
+  const pilihKategori = (k) => {
+    setKategori(k);
+    setFItem('');
+    setPeriodeAktif(null);
+    setTampilForm(false);
+    setErr('');
+  };
+
   const statusOf = (it) => {
     const stok = it.stok || 0, min = it.stokMin || 0;
     if (stok <= 0) return { t: 'Habis', bg: '#fee2e2', fg: '#b91c1c' };
@@ -158,7 +180,7 @@ export default function Page() {
     return <span style={{ background: s.bg, color: s.fg, fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999 }}>{s.t}</span>;
   };
 
-  const stokTampil = doc.items.filter(it => {
+  const stokTampil = itemsAktif.filter(it => {
     const q = cari.trim().toLowerCase();
     if (!q) return true;
     return (it.nama || '').toLowerCase().includes(q) || (it.kode || '').toLowerCase().includes(q);
@@ -182,8 +204,8 @@ export default function Page() {
     else arr.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
     return arr;
   };
-  const masukUrut = useMemo(() => urutRiwayat(doc.masuk, sortMasuk), [doc.masuk, sortMasuk]);
-  const keluarUrut = useMemo(() => urutRiwayat(doc.keluar, sortKeluar), [doc.keluar, sortKeluar]);
+  const masukUrut = useMemo(() => urutRiwayat(masukAktif, sortMasuk), [masukAktif, sortMasuk]);
+  const keluarUrut = useMemo(() => urutRiwayat(keluarAktif, sortKeluar), [keluarAktif, sortKeluar]);
 
   const resetForm = () => {
     setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setEditId(null);
@@ -207,6 +229,7 @@ export default function Page() {
       stok: Math.max(0, parseInt(fStokAwal) || 0),
       stokMin: Math.max(0, parseInt(fStokMin) || 0),
       lokasi: fLokasi.trim(),
+      kategori: editId ? kategoriItem(doc.items.find(i => i.id === editId)) : kategori,
     };
     const next = editId
       ? { ...doc, items: doc.items.map(i => i.id === editId ? { ...i, ...data } : i) }
@@ -231,13 +254,13 @@ export default function Page() {
 
   const catat = (jenis) => {
     const jumlah = parseInt(fJumlah);
-    if (!fItem) return setErr('Pilih barang dulu.');
+    if (!fItem) return setErr(`Pilih ${namaObjek} dulu.`);
     if (!jumlah || jumlah <= 0) return setErr('Jumlah harus lebih dari 0.');
     const item = doc.items.find(i => i.id === fItem);
-    if (!item) return setErr('Barang tidak ditemukan.');
+    if (!item) return setErr(`${labelObjek} tidak ditemukan.`);
     if (jenis === 'keluar' && item.stok < jumlah) return setErr(`Stok tidak cukup (tersisa ${item.stok}).`);
     if (!fOleh.trim()) return setErr(jenis === 'masuk' ? 'Nama penerima wajib diisi.' : 'Nama pengambil wajib diisi.');
-    const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim() };
+    const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(item) };
     const items = doc.items.map(i => i.id === fItem ? { ...i, stok: i.stok + (jenis === 'masuk' ? jumlah : -jumlah) } : i);
     const next = jenis === 'masuk'
       ? { ...doc, items, masuk: [entry, ...doc.masuk] }
@@ -246,16 +269,31 @@ export default function Page() {
     save(next);
   };
 
-  const stats = useMemo(() => {
+  const buatStats = (items, masuk, keluar) => {
     const now = new Date();
     const thisMonth = (tgl) => { const d = new Date(tgl + 'T00:00:00'); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); };
     return {
-      jenis: doc.items.length,
-      totalUnit: doc.items.reduce((a, i) => a + (i.stok || 0), 0),
-      masukBulan: doc.masuk.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
-      keluarBulan: doc.keluar.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
+      jenis: items.length,
+      totalUnit: items.reduce((a, i) => a + (i.stok || 0), 0),
+      masukBulan: masuk.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
+      keluarBulan: keluar.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
+      catatanMasuk: masuk.length,
+      catatanKeluar: keluar.length,
     };
-  }, [doc]);
+  };
+  const stats = useMemo(() => buatStats(doc.items, doc.masuk, doc.keluar), [doc]);
+  const statsPerKategori = useMemo(() => ({
+    gudang: buatStats(
+      doc.items.filter(it => kategoriItem(it) === 'gudang'),
+      doc.masuk.filter(e => kategoriEntri(e) === 'gudang'),
+      doc.keluar.filter(e => kategoriEntri(e) === 'gudang')
+    ),
+    sparepart: buatStats(
+      doc.items.filter(it => kategoriItem(it) === 'sparepart'),
+      doc.masuk.filter(e => kategoriEntri(e) === 'sparepart'),
+      doc.keluar.filter(e => kategoriEntri(e) === 'sparepart')
+    ),
+  }), [doc]);
 
   const dayOfYear = (d) => Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
   const weekOf = (d) => Math.ceil(dayOfYear(d) / 7);
@@ -272,13 +310,13 @@ export default function Page() {
 
   const tahunTersedia = useMemo(() => {
     const ys = new Set([new Date().getFullYear()]);
-    [...doc.masuk, ...doc.keluar].forEach(e => ys.add(new Date(e.tanggal + 'T00:00:00').getFullYear()));
+    [...masukAktif, ...keluarAktif].forEach(e => ys.add(new Date(e.tanggal + 'T00:00:00').getFullYear()));
     return [...ys].sort((a, b) => b - a);
-  }, [doc]);
+  }, [masukAktif, keluarAktif]);
 
   const rekapTahunData = useMemo(() => {
     const inYear = (e) => new Date(e.tanggal + 'T00:00:00').getFullYear() === rekapTahun;
-    const masuk = doc.masuk.filter(inYear), keluar = doc.keluar.filter(inYear);
+    const masuk = masukAktif.filter(inYear), keluar = keluarAktif.filter(inYear);
     const keyOf = (tgl) => {
       const d = new Date(tgl + 'T00:00:00');
       return rekapMode === 'minggu' ? 'w' + weekOf(d) : 'm' + d.getMonth();
@@ -293,7 +331,7 @@ export default function Page() {
     const totMasuk = masuk.reduce((a, e) => a + e.jumlah, 0);
     const totKeluar = keluar.reduce((a, e) => a + e.jumlah, 0);
     return { totMasuk, totKeluar, selisih: totMasuk - totKeluar, trx: masuk.length + keluar.length, rows };
-  }, [doc, rekapMode, rekapTahun]);
+  }, [masukAktif, keluarAktif, rekapMode, rekapTahun]);
 
   const rincian = useMemo(() => {
     if (!periodeAktif || periodeAktif.tahun !== rekapTahun || periodeAktif.mode !== rekapMode) return null;
@@ -304,27 +342,50 @@ export default function Page() {
       return k === periodeAktif.key;
     };
     const map = {};
-    doc.items.forEach(i => { map[i.id] = { nama: i.nama, kode: i.kode, masuk: 0, keluar: 0 }; });
-    doc.masuk.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += e.jumlah; });
-    doc.keluar.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += e.jumlah; });
+    itemsAktif.forEach(i => { map[i.id] = { nama: i.nama, kode: i.kode, masuk: 0, keluar: 0 }; });
+    masukAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += e.jumlah; });
+    keluarAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += e.jumlah; });
     return Object.values(map)
       .filter(r => r.masuk > 0 || r.keluar > 0)
       .map(r => ({ ...r, selisih: r.masuk - r.keluar }));
-  }, [doc, periodeAktif, rekapMode, rekapTahun]);
+  }, [itemsAktif, masukAktif, keluarAktif, periodeAktif, rekapMode, rekapTahun]);
 
-  const menuCards = [
-    { id: 'stok', title: 'Stok Barang', desc: 'Kelola daftar barang dan pantau stok gudang terkini.', tile: '#dcfce7', glyph: '📦', count: `${stats.jenis} jenis barang · ${stats.totalUnit} total unit` },
-    { id: 'masuk', title: 'Barang Masuk', desc: 'Catat setiap barang yang masuk ke gudang.', tile: '#dcfce7', glyph: '📥', count: `${doc.masuk.length} catatan masuk` },
-    { id: 'keluar', title: 'Barang Keluar', desc: 'Catat setiap barang yang keluar dari gudang.', tile: '#fee2e2', glyph: '📤', count: `${doc.keluar.length} catatan keluar` },
-    { id: 'rekap', title: 'Rekap', desc: 'Lihat rekap mingguan, bulanan, dan tahunan per barang.', tile: '#dcfce7', glyph: '📊', count: `${stats.jenis} jenis barang` },
-  ];
+  const menuGroups = KATS.map(k => {
+    const s = statsPerKategori[k.id];
+    const gudang = k.id === 'gudang';
+    return {
+      ...k,
+      cards: [
+        { id: 'stok', title: `Stok ${k.objek}`, desc: gudang ? 'Kelola daftar barang dan pantau stok gudang terkini.' : 'Kelola daftar sparepart mesin dan pantau stok terkini.', tile: '#dcfce7', glyph: '📦', count: `${s.jenis} jenis ${k.objekKecil} · ${s.totalUnit} total unit` },
+        { id: 'masuk', title: `${k.objek} Masuk`, desc: gudang ? 'Catat setiap barang yang masuk ke gudang.' : 'Catat setiap sparepart mesin yang masuk.', tile: '#dcfce7', glyph: '📥', count: `${s.catatanMasuk} catatan masuk` },
+        { id: 'keluar', title: `${k.objek} Keluar`, desc: gudang ? 'Catat setiap barang yang keluar dari gudang.' : 'Catat setiap sparepart mesin yang keluar.', tile: '#fee2e2', glyph: '📤', count: `${s.catatanKeluar} catatan keluar` },
+        { id: 'rekap', title: gudang ? 'Rekap' : 'Rekap Sparepart', desc: `Lihat rekap mingguan, bulanan, dan tahunan per ${k.objekKecil}.`, tile: '#dcfce7', glyph: '📊', count: `${s.jenis} jenis ${k.objekKecil}` },
+      ],
+    };
+  });
 
   const statCards = [
-    { label: 'JENIS BARANG', val: stats.jenis },
-    { label: 'TOTAL UNIT DI GUDANG', val: stats.totalUnit },
+    { label: 'JENIS BARANG & SPAREPART', val: stats.jenis },
+    { label: 'TOTAL UNIT SEMUA', val: stats.totalUnit },
     { label: 'MASUK BULAN INI', val: `${stats.masukBulan} unit` },
     { label: 'KELUAR BULAN INI', val: `${stats.keluarBulan} unit` },
   ];
+
+  const navItems = [
+    { id: 'beranda', label: 'Beranda', icon: IC.home },
+    { id: 'stok', label: `Stok ${labelObjek}`, icon: IC.box },
+    { id: 'masuk', label: `${labelObjek} Masuk`, icon: IC.masuk },
+    { id: 'keluar', label: `${labelObjek} Keluar`, icon: IC.keluar },
+    { id: 'rekap', label: kategori === 'sparepart' ? 'Rekap Sparepart' : 'Rekap', icon: IC.rekap },
+  ];
+
+  const kategoriSwitch = (
+    <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+      {KATS.map(k => (
+        <button key={k.id} style={S.segBtn(kategori === k.id)} onClick={() => pilihKategori(k.id)}>{k.menu}</button>
+      ))}
+    </div>
+  );
 
   return (
     <div>
@@ -336,7 +397,7 @@ export default function Page() {
             <div style={S.brandSub}>Program Stok Barang Gudang</div>
           </div>
           <nav style={S.nav}>
-            {NAV.map(n => (
+            {navItems.map(n => (
               <button key={n.id} onClick={() => setTab(n.id)} style={S.navBtn(tab === n.id)}>
                 {n.icon}{n.label}
               </button>
@@ -360,20 +421,30 @@ export default function Page() {
                 </div>
                 <div>
                   <h1 style={S.h1}>Menu Utama</h1>
-                  <p style={S.lead}>Kelola stok barang gudang PT. Meleo Mahkota Abadi — catat barang masuk dan keluar, pantau stok terkini, dan lihat rekap per periode.</p>
+                  <p style={S.lead}>Kelola stok barang gudang dan sparepart mesin PT. Meleo Mahkota Abadi — pilih Menu Gudang atau Menu Sparepart Mesin untuk mencatat masuk/keluar, memantau stok, dan melihat rekap masing-masing.</p>
                 </div>
               </div>
 
-              <div style={S.cardGrid}>
-                {menuCards.map(c => (
-                  <button key={c.id} style={S.card} onClick={() => setTab(c.id)}>
-                    <div style={S.tile(c.tile)}>{c.glyph}</div>
-                    <div style={S.cardTitle}>{c.title}</div>
-                    <p style={S.cardDesc}>{c.desc}</p>
-                    <div style={S.cardCount}>{c.count}</div>
-                  </button>
-                ))}
-              </div>
+              {menuGroups.map(g => (
+                <div key={g.id}>
+                  <h3 style={{ ...S.h3, marginBottom: 4 }}>{g.menu}</h3>
+                  <p style={{ ...S.muted, margin: '0 0 14px' }}>
+                    {g.id === 'gudang'
+                      ? 'Untuk stok barang gudang — datanya tetap seperti yang sudah berjalan.'
+                      : 'Untuk sparepart mesin — stok, masuk, keluar, dan rekap terpisah dari barang gudang.'}
+                  </p>
+                  <div style={S.cardGrid}>
+                    {g.cards.map(c => (
+                      <button key={g.id + '-' + c.id} style={S.card} onClick={() => { pilihKategori(g.id); setTab(c.id); }}>
+                        <div style={S.tile(c.tile)}>{c.glyph}</div>
+                        <div style={S.cardTitle}>{c.title}</div>
+                        <p style={S.cardDesc}>{c.desc}</p>
+                        <div style={S.cardCount}>{c.count}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
 
               <div style={S.statGrid}>
                 {statCards.map(s => (
@@ -386,20 +457,21 @@ export default function Page() {
 
               <div style={S.note}>
                 <strong>Catatan:</strong> setiap perubahan data tersimpan otomatis dan permanen di database.
-                Tutup halaman dan buka kembali kapan pun — data stok, riwayat masuk, dan riwayat keluar tetap ada.
+                Tutup halaman dan buka kembali kapan pun — data stok gudang, sparepart, riwayat masuk, dan riwayat keluar tetap ada.
               </div>
             </>)}
 
             {tab === 'stok' && (<>
-              <h2 style={S.h2}>Stok Barang</h2>
-              <p style={S.lead2}>Daftar seluruh barang yang tersimpan di gudang beserta jumlah stok saat ini.</p>
+              {kategoriSwitch}
+              <h2 style={S.h2}>Stok {labelObjek}</h2>
+              <p style={S.lead2}>{kategori === 'gudang' ? 'Daftar seluruh barang yang tersimpan di gudang beserta jumlah stok saat ini.' : 'Daftar seluruh sparepart mesin beserta jumlah stok saat ini.'}</p>
 
               <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: '1 1 260px', maxWidth: 480 }}>
                   <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 15 }}>⌕</span>
                   <input
                     style={{ ...S.input, marginBottom: 0, paddingLeft: 38 }}
-                    placeholder="Cari nama atau kode barang..."
+                    placeholder={`Cari nama atau kode ${namaObjek}...`}
                     value={cari} onChange={e => setCari(e.target.value)}
                   />
                 </div>
@@ -412,25 +484,25 @@ export default function Page() {
                     <option value="stok-asc">Stok tersedikit</option>
                   </select>
                 </div>
-                <button style={{ ...S.btn, background: GREEN, color: '#fff', marginLeft: 'auto' }} onClick={bukaFormTambah}>+ Tambah Barang</button>
+                <button style={{ ...S.btn, background: GREEN, color: '#fff', marginLeft: 'auto' }} onClick={bukaFormTambah}>+ Tambah {labelObjek}</button>
               </div>
 
               {tampilForm && (
                 <div style={S.panel}>
-                  <h3 style={S.h3}>{editId ? 'Edit Barang' : 'Tambah Barang Baru'}</h3>
-                  <p style={{ ...S.muted, margin: '-8px 0 14px' }}>Isi data barang di bawah ini, lalu simpan.</p>
+                  <h3 style={S.h3}>{editId ? `Edit ${labelObjek}` : `Tambah ${labelObjek} Baru`}</h3>
+                  <p style={{ ...S.muted, margin: '-8px 0 14px' }}>Isi data {namaObjek} di bawah ini, lalu simpan.</p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                     <div>
-                      <label style={S.label}>Kode Barang</label>
-                      <input style={S.input} placeholder="BRG-001" value={fKode} onChange={e => setFKode(e.target.value)} />
+                      <label style={S.label}>Kode {labelObjek}</label>
+                      <input style={S.input} placeholder={kategori === 'gudang' ? 'BRG-001' : 'SPR-001'} value={fKode} onChange={e => setFKode(e.target.value)} />
                     </div>
                     <div>
                       <label style={S.label}>Satuan</label>
                       <input style={S.input} placeholder="pcs, dus, kg, liter" value={fSatuan} onChange={e => setFSatuan(e.target.value)} />
                     </div>
                   </div>
-                  <label style={S.label}>Nama Barang</label>
-                  <input style={S.input} placeholder="Beras Premium 5 kg" value={fNama} onChange={e => setFNama(e.target.value)} />
+                  <label style={S.label}>Nama {labelObjek}</label>
+                  <input style={S.input} placeholder={kategori === 'gudang' ? 'Beras Premium 5 kg' : 'mis. Bearing 6204, V-belt, sensor'} value={fNama} onChange={e => setFNama(e.target.value)} />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                     <div>
                       <label style={S.label}>Stok Awal</label>
@@ -440,14 +512,14 @@ export default function Page() {
                       <label style={S.label}>Stok Minimum</label>
                       <input style={S.input} type="number" min="0" value={fStokMin} onChange={e => setFStokMin(e.target.value)} />
                       <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
-                        Barang ditandai &lsquo;Menipis&rsquo; bila stok mencapai angka ini atau di bawahnya.
+                        {labelObjek} ditandai &lsquo;Menipis&rsquo; bila stok mencapai angka ini atau di bawahnya.
                       </div>
                     </div>
                   </div>
-                  <label style={S.label}>Lokasi di Gudang (boleh kosong)</label>
-                  <input style={S.input} placeholder="Rak A1, Blok B" value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
+                  <label style={S.label}>{kategori === 'gudang' ? 'Lokasi di Gudang (boleh kosong)' : 'Lokasi Sparepart (boleh kosong)'}</label>
+                  <input style={S.input} placeholder={kategori === 'gudang' ? 'Rak A1, Blok B' : 'Rak sparepart, Lemari mesin'} value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
                   <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                    <button style={{ ...S.btn, background: GREEN, color: '#fff' }} onClick={simpanBarang}>Simpan Barang</button>
+                    <button style={{ ...S.btn, background: GREEN, color: '#fff' }} onClick={simpanBarang}>Simpan {labelObjek}</button>
                     <button style={{ ...S.btn, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }} onClick={tutupForm}>Batal</button>
                   </div>
                 </div>
@@ -458,7 +530,7 @@ export default function Page() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                     <thead><tr>
                       <th style={S.th}>Kode</th>
-                      <th style={S.th}>Nama Barang</th>
+                      <th style={S.th}>Nama {labelObjek}</th>
                       <th style={S.th}>Lokasi</th>
                       <th style={S.th}>Stok</th>
                       <th style={S.th}>Satuan</th>
@@ -491,35 +563,36 @@ export default function Page() {
                 </div>
                 {stokUrut.length === 0 && (
                   <div style={{ padding: '44px 20px', textAlign: 'center' }}>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada barang</div>
-                    <div style={S.muted}>Klik tombol &ldquo;Tambah Barang&rdquo; untuk memasukkan barang pertama ke gudang.</div>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada {namaObjek}</div>
+                    <div style={S.muted}>Klik tombol &ldquo;Tambah {labelObjek}&rdquo; untuk memasukkan {namaObjek} pertama.</div>
                   </div>
                 )}
               </div>
             </>)}
 
             {(tab === 'masuk' || tab === 'keluar') && (<>
-              <h2 style={S.h2}>{tab === 'masuk' ? 'Barang Masuk' : 'Barang Keluar'}</h2>
+              {kategoriSwitch}
+              <h2 style={S.h2}>{labelObjek} {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h2>
               <p style={S.lead2}>
                 {tab === 'masuk'
-                  ? 'Catat barang yang diterima gudang. Stok barang akan bertambah otomatis sesuai jumlah yang dicatat.'
-                  : 'Catat barang yang dikeluarkan dari gudang. Stok barang akan berkurang otomatis sesuai jumlah yang dicatat.'}
+                  ? `Catat ${namaObjek} yang diterima. Stok ${namaObjek} akan bertambah otomatis sesuai jumlah yang dicatat.`
+                  : `Catat ${namaObjek} yang dikeluarkan. Stok ${namaObjek} akan berkurang otomatis sesuai jumlah yang dicatat.`}
               </p>
 
               <div style={S.panel}>
-                <h3 style={S.h3}>{tab === 'masuk' ? 'Catat Barang Masuk' : 'Catat Barang Keluar'}</h3>
+                <h3 style={S.h3}>Catat {labelObjek} {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h3>
                 <p style={{ ...S.muted, margin: '-8px 0 14px', fontSize: 14 }}>
                   {tab === 'masuk'
-                    ? 'Pilih barang, isi jumlah, tanggal penerimaan, dan nama penerima.'
-                    : 'Pilih barang, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.'}
+                    ? `Pilih ${namaObjek}, isi jumlah, tanggal penerimaan, dan nama penerima.`
+                    : `Pilih ${namaObjek}, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.`}
                 </p>
-                <label style={S.label}>Barang</label>
+                <label style={S.label}>{labelObjek}</label>
                 <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
-                  {doc.items.length === 0
-                    ? <option value="">— Belum ada barang, tambahkan dulu di menu Stok Barang —</option>
+                  {itemsAktif.length === 0
+                    ? <option value="">— Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} —</option>
                     : <>
-                      <option value="">— Pilih barang —</option>
-                      {doc.items.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
+                      <option value="">— Pilih {namaObjek} —</option>
+                      {itemsAktif.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
                     </>}
                 </select>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
@@ -535,7 +608,7 @@ export default function Page() {
                 <label style={S.label}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'} <span style={{ color: '#dc2626' }}>*</span> <span style={{ ...S.muted, fontWeight: 400 }}>(wajib diisi)</span></label>
                 <input
                   style={S.input}
-                  placeholder={tab === 'masuk' ? 'mis. Nama penerima barang' : 'mis. Nama yang mengambil barang'}
+                  placeholder={tab === 'masuk' ? `mis. Nama penerima ${namaObjek}` : `mis. Nama yang mengambil ${namaObjek}`}
                   value={fOleh} onChange={e => setFOleh(e.target.value)}
                 />
                 <label style={S.label}>Keterangan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
@@ -545,11 +618,11 @@ export default function Page() {
                   value={fKet} onChange={e => setFKet(e.target.value)}
                 />
                 <button style={{ ...S.btn, background: GREEN, color: '#fff', marginTop: 4 }} onClick={() => catat(tab)}>
-                  {tab === 'masuk' ? 'Simpan Barang Masuk' : 'Simpan Barang Keluar'}
+                  {tab === 'masuk' ? `Simpan ${labelObjek} Masuk` : `Simpan ${labelObjek} Keluar`}
                 </button>
               </div>
 
-              <h3 style={S.h3b}>Riwayat {tab === 'masuk' ? 'Barang Masuk' : 'Barang Keluar'}</h3>
+              <h3 style={S.h3b}>Riwayat {labelObjek} {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h3>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ ...S.muted, whiteSpace: 'nowrap' }}>Urutkan:</span>
@@ -560,7 +633,7 @@ export default function Page() {
                   >
                     <option value="tgl-baru">Tanggal terbaru</option>
                     <option value="tgl-lama">Tanggal terlama</option>
-                    <option value="nama-az">Nama barang A–Z</option>
+                    <option value="nama-az">Nama {namaObjek} A–Z</option>
                     <option value="jml-desc">Jumlah terbanyak</option>
                     <option value="jml-asc">Jumlah tersedikit</option>
                   </select>
@@ -571,7 +644,7 @@ export default function Page() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
                     <thead><tr>
                       <th style={S.th}>Tanggal</th>
-                      <th style={S.th}>Barang</th>
+                      <th style={S.th}>{labelObjek}</th>
                       <th style={S.th}>Jumlah</th>
                       <th style={S.th}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'}</th>
                       <th style={S.th}>Keterangan</th>
@@ -598,13 +671,13 @@ export default function Page() {
                     </tbody>
                   </table>
                 </div>
-                {(tab === 'masuk' ? doc.masuk : doc.keluar).length === 0 && (
+                {(tab === 'masuk' ? masukUrut : keluarUrut).length === 0 && (
                   <div style={{ padding: '44px 20px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>
-                      {tab === 'masuk' ? 'Belum ada catatan barang masuk' : 'Belum ada catatan barang keluar'}
+                      {tab === 'masuk' ? `Belum ada catatan ${namaObjek} masuk` : `Belum ada catatan ${namaObjek} keluar`}
                     </div>
                     <div style={S.muted}>
-                      {tab === 'masuk' ? 'Catatan akan muncul di sini setelah barang masuk disimpan.' : 'Catatan akan muncul di sini setelah barang keluar disimpan.'}
+                      {tab === 'masuk' ? `Catatan akan muncul di sini setelah ${namaObjek} masuk disimpan.` : `Catatan akan muncul di sini setelah ${namaObjek} keluar disimpan.`}
                     </div>
                   </div>
                 )}
@@ -612,8 +685,9 @@ export default function Page() {
             </>)}
 
             {tab === 'rekap' && (<>
-              <h2 style={S.h2}>Rekap Stok</h2>
-              <p style={S.lead2}>Ringkasan pergerakan barang masuk dan keluar per minggu, serta per bulan dalam satu tahun. Klik salah satu baris periode untuk melihat rincian per barang pada periode itu.</p>
+              {kategoriSwitch}
+              <h2 style={S.h2}>{kategori === 'gudang' ? 'Rekap Stok' : 'Rekap Stok Sparepart'}</h2>
+              <p style={S.lead2}>Ringkasan pergerakan {namaObjek} masuk dan keluar per minggu, serta per bulan dalam satu tahun. Klik salah satu baris periode untuk melihat rincian per {namaObjek} pada periode itu.</p>
 
               <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
@@ -678,13 +752,13 @@ export default function Page() {
                 {rekapTahunData.rows.length === 0 && (
                   <div style={{ padding: '44px 20px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, fontSize: 16, color: '#111827', marginBottom: 8 }}>Belum ada transaksi pada tahun ini</div>
-                    <div style={S.muted}>Rekap akan muncul setelah ada catatan barang masuk atau keluar pada tahun yang dipilih.</div>
+                    <div style={S.muted}>Rekap akan muncul setelah ada catatan {namaObjek} masuk atau keluar pada tahun yang dipilih.</div>
                   </div>
                 )}
               </div>
 
               <div style={{ ...S.panel, marginTop: 16 }}>
-                <h3 style={S.h3}>Rincian per Barang</h3>
+                <h3 style={S.h3}>Rincian per {labelObjek}</h3>
                 {!rincian && <p style={{ ...S.muted, margin: 0 }}>Belum ada periode yang dapat ditampilkan pada tahun ini.</p>}
                 {rincian && (<>
                   <p style={{ ...S.muted, margin: '-8px 0 12px', fontSize: 14 }}>
@@ -694,7 +768,7 @@ export default function Page() {
                   <div style={S.tableCard}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead><tr>
-                        <th style={S.th}>Barang</th>
+                        <th style={S.th}>{labelObjek}</th>
                         <th style={S.th}>Masuk</th>
                         <th style={S.th}>Keluar</th>
                         <th style={{ ...S.th, textAlign: 'right' }}>Selisih</th>
@@ -712,8 +786,8 @@ export default function Page() {
                     </table>
                     {rincian.length === 0 && (
                       <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                        <div style={{ fontWeight: 700, fontSize: 15, color: '#111827', marginBottom: 8 }}>Tidak ada pergerakan barang</div>
-                        <div style={S.muted}>Pada periode ini belum ada catatan barang masuk atau keluar.</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: '#111827', marginBottom: 8 }}>Tidak ada pergerakan {namaObjek}</div>
+                        <div style={S.muted}>Pada periode ini belum ada catatan {namaObjek} masuk atau keluar.</div>
                       </div>
                     )}
                   </div>
