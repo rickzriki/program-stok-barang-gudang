@@ -106,8 +106,10 @@ export default function Page() {
   const [fStokAwal, setFStokAwal] = useState('0');
   const [fStokMin, setFStokMin] = useState('0');
   const [fLokasi, setFLokasi] = useState('');
+  const [fIsi, setFIsi] = useState('');
   const [fItem, setFItem] = useState('');
   const [fJumlah, setFJumlah] = useState('');
+  const [fSatuanEntri, setFSatuanEntri] = useState('kemasan');
   const [fTanggal, setFTanggal] = useState(today());
   const [fKet, setFKet] = useState('');
   const [fOleh, setFOleh] = useState('');
@@ -152,6 +154,28 @@ export default function Page() {
     doc.items.forEach(i => { map[i.id] = i; });
     return map;
   }, [doc.items]);
+  const bulat4 = (n) => Math.round((n || 0) * 10000) / 10000;
+  const fmtNum = (n) => bulat4(n).toLocaleString('id-ID');
+  const jmlKemasan = (e) => (e && typeof e.jumlahKemasan === 'number' ? e.jumlahKemasan : ((e && e.jumlah) || 0));
+  const formatStok = (it) => {
+    if (!it) return '—';
+    const stok = it.stok || 0, isi = it.isi || 0, sat = it.satuan || '';
+    if (isi > 0) {
+      const totalPcs = Math.round(stok * isi);
+      const pak = Math.floor(totalPcs / isi), sisa = totalPcs % isi;
+      if (totalPcs <= 0) return `0 ${sat}`.trim();
+      if (sisa === 0) return `${pak} ${sat}`.trim();
+      if (pak === 0) return `${sisa} pcs`;
+      return `${pak} ${sat} + ${sisa} pcs`;
+    }
+    return `${fmtNum(stok)} ${sat}`.trim();
+  };
+  const formatJmlEntri = (e) => {
+    const it = itemById[e.itemId];
+    const sat = (it && it.satuan) || '';
+    if (e.satuanEntri === 'pcs') return `${fmtNum(e.jumlah)} pcs (${fmtNum(jmlKemasan(e))} ${sat})`.trim();
+    return `${fmtNum(e.jumlah)} ${sat}`.trim();
+  };
   const kategoriItem = (it) => (it && it.kategori === 'sparepart' ? 'sparepart' : 'gudang');
   const kategoriEntri = (e) => {
     if (e && (e.kategori === 'sparepart' || e.kategori === 'gudang')) return e.kategori;
@@ -166,6 +190,7 @@ export default function Page() {
   const pilihKategori = (k) => {
     setKategori(k);
     setFItem('');
+    setFSatuanEntri('kemasan');
     setPeriodeAktif(null);
     setTampilForm(false);
     setErr('');
@@ -211,8 +236,8 @@ export default function Page() {
     const arr = [...list];
     if (mode === 'tgl-lama') arr.sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || ''));
     else if (mode === 'nama-az') arr.sort((a, b) => itemName(a.itemId).localeCompare(itemName(b.itemId), 'id'));
-    else if (mode === 'jml-desc') arr.sort((a, b) => (b.jumlah || 0) - (a.jumlah || 0));
-    else if (mode === 'jml-asc') arr.sort((a, b) => (a.jumlah || 0) - (b.jumlah || 0));
+    else if (mode === 'jml-desc') arr.sort((a, b) => jmlKemasan(b) - jmlKemasan(a));
+    else if (mode === 'jml-asc') arr.sort((a, b) => jmlKemasan(a) - jmlKemasan(b));
     else arr.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
     return arr;
   };
@@ -220,13 +245,14 @@ export default function Page() {
   const keluarUrut = useMemo(() => urutRiwayat(keluarAktif, sortKeluar), [keluarAktif, sortKeluar]);
 
   const resetForm = () => {
-    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setEditId(null);
+    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setFIsi(''); setEditId(null);
   };
   const bukaFormTambah = () => { resetForm(); setTampilForm(true); };
   const bukaFormEdit = (it) => {
     setEditId(it.id);
     setFKode(it.kode || ''); setFSatuan(it.satuan || ''); setFNama(it.nama || '');
     setFStokAwal(String(it.stok ?? 0)); setFStokMin(String(it.stokMin ?? 0)); setFLokasi(it.lokasi || '');
+    setFIsi(it.isi ? String(it.isi) : '');
     setTampilForm(true);
   };
   const tutupForm = () => { setTampilForm(false); resetForm(); };
@@ -238,8 +264,9 @@ export default function Page() {
       kode: fKode.trim(),
       satuan: fSatuan.trim(),
       nama,
-      stok: Math.max(0, parseInt(fStokAwal) || 0),
+      stok: Math.max(0, bulat4(parseFloat(fStokAwal) || 0)),
       stokMin: Math.max(0, parseInt(fStokMin) || 0),
+      isi: Math.max(0, parseInt(fIsi) || 0),
       lokasi: fLokasi.trim(),
       kategori: editId ? kategoriItem(doc.items.find(i => i.id === editId)) : kategori,
     };
@@ -260,7 +287,7 @@ export default function Page() {
     const list = jenis === 'masuk' ? doc.masuk : doc.keluar;
     const e = list.find(x => x.id === id);
     if (!e) return;
-    const items = doc.items.map(i => i.id === e.itemId ? { ...i, stok: Math.max(0, i.stok + (jenis === 'masuk' ? -e.jumlah : e.jumlah)) } : i);
+    const items = doc.items.map(i => i.id === e.itemId ? { ...i, stok: Math.max(0, bulat4(i.stok + (jenis === 'masuk' ? -jmlKemasan(e) : jmlKemasan(e)))) } : i);
     save({ ...doc, items, [jenis]: list.filter(x => x.id !== id) });
   };
 
@@ -270,14 +297,17 @@ export default function Page() {
     if (!jumlah || jumlah <= 0) return setErr('Jumlah harus lebih dari 0.');
     const item = doc.items.find(i => i.id === fItem);
     if (!item) return setErr(`${labelObjek} tidak ditemukan.`);
-    if (jenis === 'keluar' && item.stok < jumlah) return setErr(`Stok tidak cukup (tersisa ${item.stok}).`);
+    const pakaiPcs = fSatuanEntri === 'pcs' && (item.isi || 0) > 0;
+    const jumlahKemasan = pakaiPcs ? bulat4(jumlah / item.isi) : jumlah;
+    if (jenis === 'keluar' && (item.stok || 0) < jumlahKemasan - 1e-9) return setErr(`Stok tidak cukup (tersisa ${formatStok(item)}).`);
     if (!fOleh.trim()) return setErr(jenis === 'masuk' ? 'Nama penerima wajib diisi.' : 'Nama pengambil wajib diisi.');
     const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(item) };
-    const items = doc.items.map(i => i.id === fItem ? { ...i, stok: i.stok + (jenis === 'masuk' ? jumlah : -jumlah) } : i);
+    if (pakaiPcs) { entry.satuanEntri = 'pcs'; entry.jumlahKemasan = jumlahKemasan; }
+    const items = doc.items.map(i => i.id === fItem ? { ...i, stok: bulat4((i.stok || 0) + (jenis === 'masuk' ? jumlahKemasan : -jumlahKemasan)) } : i);
     const next = jenis === 'masuk'
       ? { ...doc, items, masuk: [entry, ...doc.masuk] }
       : { ...doc, items, keluar: [entry, ...doc.keluar] };
-    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today());
+    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today()); setFSatuanEntri('kemasan');
     save(next);
   };
 
@@ -287,8 +317,8 @@ export default function Page() {
     return {
       jenis: items.length,
       totalUnit: items.reduce((a, i) => a + (i.stok || 0), 0),
-      masukBulan: masuk.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
-      keluarBulan: keluar.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + e.jumlah, 0),
+      masukBulan: masuk.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + jmlKemasan(e), 0),
+      keluarBulan: keluar.filter(e => thisMonth(e.tanggal)).reduce((a, e) => a + jmlKemasan(e), 0),
       catatanMasuk: masuk.length,
       catatanKeluar: keluar.length,
       habis: items.filter(i => (i.stok || 0) <= 0).length,
@@ -337,13 +367,13 @@ export default function Page() {
     };
     const per = {};
     const slot = (k) => (per[k] = per[k] || { trxMasuk: 0, totMasuk: 0, trxKeluar: 0, totKeluar: 0 });
-    masuk.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxMasuk++; s.totMasuk += e.jumlah; });
-    keluar.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxKeluar++; s.totKeluar += e.jumlah; });
+    masuk.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxMasuk++; s.totMasuk += jmlKemasan(e); });
+    keluar.forEach(e => { const s = slot(keyOf(e.tanggal)); s.trxKeluar++; s.totKeluar += jmlKemasan(e); });
     const rows = Object.entries(per)
       .map(([key, v]) => ({ key, ...v, selisih: v.totMasuk - v.totKeluar }))
       .sort((a, b) => parseInt(a.key.slice(1), 10) - parseInt(b.key.slice(1), 10));
-    const totMasuk = masuk.reduce((a, e) => a + e.jumlah, 0);
-    const totKeluar = keluar.reduce((a, e) => a + e.jumlah, 0);
+    const totMasuk = masuk.reduce((a, e) => a + jmlKemasan(e), 0);
+    const totKeluar = keluar.reduce((a, e) => a + jmlKemasan(e), 0);
     return { totMasuk, totKeluar, selisih: totMasuk - totKeluar, trx: masuk.length + keluar.length, rows };
   }, [masukAktif, keluarAktif, rekapMode, rekapTahun]);
 
@@ -357,8 +387,8 @@ export default function Page() {
     };
     const map = {};
     itemsAktif.forEach(i => { map[i.id] = { nama: i.nama, kode: i.kode, masuk: 0, keluar: 0 }; });
-    masukAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += e.jumlah; });
-    keluarAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += e.jumlah; });
+    masukAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].masuk += jmlKemasan(e); });
+    keluarAktif.filter(e => inPer(e.tanggal)).forEach(e => { if (map[e.itemId]) map[e.itemId].keluar += jmlKemasan(e); });
     return Object.values(map)
       .filter(r => r.masuk > 0 || r.keluar > 0)
       .map(r => ({ ...r, selisih: r.masuk - r.keluar }));
@@ -378,7 +408,7 @@ export default function Page() {
       const m = {};
       list.forEach(e => {
         const o = m[e.itemId] = m[e.itemId] || { nama: itemName(e.itemId), kali: 0, total: 0 };
-        o.kali++; o.total += e.jumlah || 0;
+        o.kali++; o.total += jmlKemasan(e);
       });
       return Object.values(m).sort((a, b) => b.kali - a.kali || b.total - a.total).slice(0, 5);
     };
@@ -387,7 +417,7 @@ export default function Page() {
     keluarM.forEach(e => {
       const nama = (e.oleh || '').trim() || '(tidak tercatat)';
       const o = perOrang[nama] = perOrang[nama] || { nama, kali: 0, total: 0, ketHit: {} };
-      o.kali++; o.total += e.jumlah || 0;
+      o.kali++; o.total += jmlKemasan(e);
       const ket = (e.ket || '').trim();
       if (ket) o.ketHit[ket] = (o.ketHit[ket] || 0) + 1;
     });
@@ -411,9 +441,9 @@ export default function Page() {
 
   const statCards = [
     { label: 'JENIS BARANG & SPAREPART', val: stats.jenis },
-    { label: 'TOTAL UNIT SEMUA', val: stats.totalUnit },
-    { label: 'MASUK BULAN INI', val: `${stats.masukBulan} unit` },
-    { label: 'KELUAR BULAN INI', val: `${stats.keluarBulan} unit` },
+    { label: 'TOTAL UNIT SEMUA', val: fmtNum(stats.totalUnit) },
+    { label: 'MASUK BULAN INI', val: `${fmtNum(stats.masukBulan)} unit` },
+    { label: 'KELUAR BULAN INI', val: `${fmtNum(stats.keluarBulan)} unit` },
   ];
 
   const subItems = [
@@ -512,7 +542,7 @@ export default function Page() {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
                         {[
                           ['JENIS', s.jenis],
-                          ['TOTAL UNIT', s.totalUnit],
+                          ['TOTAL UNIT', fmtNum(s.totalUnit)],
                           ['MENIPIS', s.hampirHabis],
                           ['HABIS', s.habis],
                         ].map(([label, val]) => (
@@ -539,7 +569,7 @@ export default function Page() {
                         <div style={S.muted}>{kategoriEntri(e) === 'sparepart' ? 'Sparepart Mesin' : 'Gudang'} · {fmtDate(e.tanggal)}{e.oleh ? ' · ' + e.oleh : ''}</div>
                       </div>
                       <div style={{ fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: e.jenis === 'masuk' ? GREEN : '#dc2626' }}>
-                        {e.jenis === 'masuk' ? '+' : '-'}{e.jumlah}
+                        {e.jenis === 'masuk' ? '+' : '-'}{formatJmlEntri(e)}
                       </div>
                     </div>
                   ))}
@@ -552,7 +582,7 @@ export default function Page() {
                     <div key={i.id} style={S.row}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{i.kode ? i.kode + ' · ' : ''}{i.nama}</div>
-                        <div style={S.muted}>{kategoriItem(i) === 'sparepart' ? 'Sparepart Mesin' : 'Gudang'} · stok {i.stok} {i.satuan || ''}</div>
+                        <div style={S.muted}>{kategoriItem(i) === 'sparepart' ? 'Sparepart Mesin' : 'Gudang'} · stok {formatStok(i)}</div>
                       </div>
                       {statusBadge(i)}
                     </div>
@@ -605,7 +635,7 @@ export default function Page() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                     <div>
                       <label style={S.label}>Stok Awal</label>
-                      <input style={S.input} type="number" min="0" value={fStokAwal} onChange={e => setFStokAwal(e.target.value)} />
+                      <input style={S.input} type="number" min="0" step="any" value={fStokAwal} onChange={e => setFStokAwal(e.target.value)} />
                     </div>
                     <div>
                       <label style={S.label}>Stok Minimum</label>
@@ -614,6 +644,11 @@ export default function Page() {
                         {labelObjek} ditandai &lsquo;Menipis&rsquo; bila stok mencapai angka ini atau di bawahnya.
                       </div>
                     </div>
+                  </div>
+                  <label style={S.label}>Isi per Kemasan (pcs) <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
+                  <input style={S.input} type="number" min="0" placeholder="mis. 100 — artinya 1 kemasan berisi 100 pcs" value={fIsi} onChange={e => setFIsi(e.target.value)} />
+                  <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
+                    Diisi bila {namaObjek} ini sering diambil per pcs. Dengan angka ini, pencatatan per pcs otomatis dikonversi dari stok kemasan. Kosongkan bila selalu dicatat per kemasan.
                   </div>
                   <label style={S.label}>{kategori === 'gudang' ? 'Lokasi di Gudang (boleh kosong)' : 'Lokasi Sparepart (boleh kosong)'}</label>
                   <input style={S.input} placeholder={kategori === 'gudang' ? 'Rak A1, Blok B' : 'Rak sparepart, Lemari mesin'} value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
@@ -642,7 +677,7 @@ export default function Page() {
                           <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#374151' }}>{it.kode || '—'}</td>
                           <td style={{ ...S.td, fontWeight: 600 }}>{it.nama}</td>
                           <td style={S.td}>{it.lokasi || '—'}</td>
-                          <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{it.stok}</td>
+                          <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{formatStok(it)}</td>
                           <td style={S.td}>{it.satuan || '—'}</td>
                           <td style={S.td}>{statusBadge(it)}</td>
                           <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -685,14 +720,33 @@ export default function Page() {
                     : `Pilih ${namaObjek}, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.`}
                 </p>
                 <label style={S.label}>{labelObjek}</label>
-                <select style={S.input} value={fItem} onChange={e => setFItem(e.target.value)}>
+                <select style={S.input} value={fItem} onChange={e => { setFItem(e.target.value); setFSatuanEntri('kemasan'); }}>
                   {itemsAktif.length === 0
                     ? <option value="">— Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} —</option>
                     : <>
                       <option value="">— Pilih {namaObjek} —</option>
-                      {itemsAktif.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {i.stok})</option>)}
+                      {itemsAktif.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {formatStok(i)})</option>)}
                     </>}
                 </select>
+                {(() => {
+                  const itemPilih = itemById[fItem];
+                  if (!itemPilih) return null;
+                  const isiPilih = itemPilih.isi || 0;
+                  return (
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={S.label}>Satuan Jumlah</label>
+                      <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
+                        <button type="button" style={S.segBtn(fSatuanEntri === 'kemasan')} onClick={() => setFSatuanEntri('kemasan')}>Per {itemPilih.satuan || 'Kemasan'}</button>
+                        <button type="button" style={S.segBtn(fSatuanEntri === 'pcs' && isiPilih > 0)} onClick={() => { if (isiPilih > 0) setFSatuanEntri('pcs'); }}>Per PCS</button>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
+                        {isiPilih > 0
+                          ? <>1 {itemPilih.satuan || 'kemasan'} = {fmtNum(isiPilih)} pcs · Stok sekarang: {formatStok(itemPilih)}{fSatuanEntri === 'pcs' ? ' · Jumlah di bawah diisi dalam pcs; stok kemasan berkurang otomatis.' : ''}</>
+                          : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per pcs belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
                   <div>
                     <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}</label>
@@ -754,7 +808,7 @@ export default function Page() {
                           <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{fmtDate(e.tanggal)}</td>
                           <td style={{ ...S.td, fontWeight: 600 }}>{itemName(e.itemId)}</td>
                           <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: tab === 'masuk' ? GREEN : '#dc2626' }}>
-                            {tab === 'masuk' ? '+' : '-'}{e.jumlah}
+                            {tab === 'masuk' ? '+' : '-'}{formatJmlEntri(e)}
                           </td>
                           <td style={S.td}>{e.oleh || '—'}</td>
                           <td style={S.td}>{e.ket || '—'}</td>
@@ -801,9 +855,9 @@ export default function Page() {
 
               <div style={S.statGrid}>
                 {[
-                  ['TOTAL MASUK', `${rekapTahunData.totMasuk} unit`],
-                  ['TOTAL KELUAR', `${rekapTahunData.totKeluar} unit`],
-                  ['SELISIH BERSIH', `${rekapTahunData.selisih} unit`],
+                  ['TOTAL MASUK', `${fmtNum(rekapTahunData.totMasuk)} unit`],
+                  ['TOTAL KELUAR', `${fmtNum(rekapTahunData.totKeluar)} unit`],
+                  ['SELISIH BERSIH', `${fmtNum(rekapTahunData.selisih)} unit`],
                   ['JUMLAH TRANSAKSI', `${rekapTahunData.trx}`],
                 ].map(([label, val]) => (
                   <div key={label} style={S.stat}>
@@ -836,10 +890,10 @@ export default function Page() {
                               {rekapMode === 'minggu' && <span style={{ ...S.muted, fontWeight: 400 }}> · {weekRange(rekapTahun, +r.key.slice(1))}</span>}
                             </td>
                             <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace' }}>{r.trxMasuk}</td>
-                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN, fontWeight: 600 }}>+{r.totMasuk}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN, fontWeight: 600 }}>+{fmtNum(r.totMasuk)}</td>
                             <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace' }}>{r.trxKeluar}</td>
-                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626', fontWeight: 600 }}>-{r.totKeluar}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{r.selisih}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626', fontWeight: 600 }}>-{fmtNum(r.totKeluar)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{fmtNum(r.selisih)}</td>
                           </tr>
                         );
                       })}
@@ -874,9 +928,9 @@ export default function Page() {
                         {rincian.map((r, i) => (
                           <tr key={i}>
                             <td style={{ ...S.td, fontWeight: 600 }}>{r.kode ? r.kode + ' · ' : ''}{r.nama}</td>
-                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN }}>+{r.masuk}</td>
-                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626' }}>-{r.keluar}</td>
-                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{r.selisih}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: GREEN }}>+{fmtNum(r.masuk)}</td>
+                            <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#dc2626' }}>-{fmtNum(r.keluar)}</td>
+                            <td style={{ ...S.td, textAlign: 'right', fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{r.selisih > 0 ? '+' : ''}{fmtNum(r.selisih)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -920,7 +974,7 @@ export default function Page() {
                         <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{o.nama}</div>
                         {o.keperluan && <div style={S.muted}>Keperluan terbanyak: {o.keperluan}</div>}
                       </div>
-                      <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{o.kali} kali · {o.total} unit</div>
+                      <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{o.kali} kali · {fmtNum(o.total)} unit</div>
                     </div>
                   ))}
 
@@ -931,7 +985,7 @@ export default function Page() {
                       {rangkumanMingguan.barangMasuk.map((b, i) => (
                         <div key={i} style={S.row}>
                           <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{b.nama}</div>
-                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {b.total} unit</div>
+                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {fmtNum(b.total)} unit</div>
                         </div>
                       ))}
                     </div>
@@ -941,7 +995,7 @@ export default function Page() {
                       {rangkumanMingguan.barangKeluar.map((b, i) => (
                         <div key={i} style={S.row}>
                           <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{b.nama}</div>
-                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {b.total} unit</div>
+                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {fmtNum(b.total)} unit</div>
                         </div>
                       ))}
                     </div>
