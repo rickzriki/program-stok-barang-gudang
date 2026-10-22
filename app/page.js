@@ -114,6 +114,7 @@ export default function Page() {
   const [rekapMode, setRekapMode] = useState('minggu');
   const [rekapTahun, setRekapTahun] = useState(new Date().getFullYear());
   const [periodeAktif, setPeriodeAktif] = useState(null);
+  const [mingguRangkuman, setMingguRangkuman] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -362,6 +363,51 @@ export default function Page() {
       .filter(r => r.masuk > 0 || r.keluar > 0)
       .map(r => ({ ...r, selisih: r.masuk - r.keluar }));
   }, [itemsAktif, masukAktif, keluarAktif, periodeAktif, rekapMode, rekapTahun]);
+
+  const rangkumanMingguan = useMemo(() => {
+    const inYear = (e) => new Date(e.tanggal + 'T00:00:00').getFullYear() === rekapTahun;
+    const keyOf = (e) => 'w' + weekOf(new Date(e.tanggal + 'T00:00:00'));
+    const mingguAda = [...new Set([...masukAktif, ...keluarAktif].filter(inYear).map(keyOf))]
+      .sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+    if (mingguAda.length === 0) return { mingguAda, key: null, pengambil: [], barangMasuk: [], barangKeluar: [], keperluan: [] };
+    const key = mingguAda.includes(mingguRangkuman) ? mingguRangkuman : mingguAda[mingguAda.length - 1];
+    const masukM = masukAktif.filter(e => inYear(e) && keyOf(e) === key);
+    const keluarM = keluarAktif.filter(e => inYear(e) && keyOf(e) === key);
+
+    const perItem = (list) => {
+      const m = {};
+      list.forEach(e => {
+        const o = m[e.itemId] = m[e.itemId] || { nama: itemName(e.itemId), kali: 0, total: 0 };
+        o.kali++; o.total += e.jumlah || 0;
+      });
+      return Object.values(m).sort((a, b) => b.kali - a.kali || b.total - a.total).slice(0, 5);
+    };
+
+    const perOrang = {};
+    keluarM.forEach(e => {
+      const nama = (e.oleh || '').trim() || '(tidak tercatat)';
+      const o = perOrang[nama] = perOrang[nama] || { nama, kali: 0, total: 0, ketHit: {} };
+      o.kali++; o.total += e.jumlah || 0;
+      const ket = (e.ket || '').trim();
+      if (ket) o.ketHit[ket] = (o.ketHit[ket] || 0) + 1;
+    });
+    const pengambil = Object.values(perOrang)
+      .map(o => ({ nama: o.nama, kali: o.kali, total: o.total, keperluan: Object.entries(o.ketHit).sort((a, b) => b[1] - a[1])[0]?.[0] || '' }))
+      .sort((a, b) => b.kali - a.kali || b.total - a.total)
+      .slice(0, 5);
+
+    const ketSemua = {};
+    keluarM.forEach(e => {
+      const ket = (e.ket || '').trim();
+      if (ket) ketSemua[ket] = (ketSemua[ket] || 0) + 1;
+    });
+    const keperluan = Object.entries(ketSemua)
+      .map(([ket, kali]) => ({ ket, kali }))
+      .sort((a, b) => b.kali - a.kali)
+      .slice(0, 5);
+
+    return { mingguAda, key, pengambil, barangMasuk: perItem(masukM), barangKeluar: perItem(keluarM), keperluan };
+  }, [masukAktif, keluarAktif, rekapTahun, mingguRangkuman]);
 
   const statCards = [
     { label: 'JENIS BARANG & SPAREPART', val: stats.jenis },
@@ -738,7 +784,7 @@ export default function Page() {
 
             {tab === 'rekap' && (<>
               <h2 style={S.h2}>{kategori === 'gudang' ? 'Rekap Stok' : 'Rekap Stok Sparepart'}</h2>
-              <p style={S.lead2}>Ringkasan pergerakan {namaObjek} masuk dan keluar per minggu, serta per bulan dalam satu tahun. Klik salah satu baris periode untuk melihat rincian per {namaObjek} pada periode itu.</p>
+              <p style={S.lead2}>Ringkasan pergerakan {namaObjek} masuk dan keluar per minggu, serta per bulan dalam satu tahun. Klik salah satu baris periode untuk melihat rincian per {namaObjek} pada periode itu. Di bagian bawah ada rangkuman mingguan: siapa yang sering mengambil {namaObjek} keluar, {namaObjek} yang sering masuk dan keluar, beserta keterangan keperluannya.</p>
 
               <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
                 <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
@@ -842,6 +888,73 @@ export default function Page() {
                       </div>
                     )}
                   </div>
+                </>)}
+              </div>
+
+              <div style={{ ...S.panel, marginTop: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <h3 style={{ ...S.h3, margin: 0 }}>Rangkuman Mingguan Aktivitas</h3>
+                  {rangkumanMingguan.key && (
+                    <select
+                      style={{ ...S.input, marginBottom: 0, width: 'auto', minWidth: 220 }}
+                      value={rangkumanMingguan.key}
+                      onChange={e => setMingguRangkuman(e.target.value)}
+                    >
+                      {[...rangkumanMingguan.mingguAda].reverse().map(k => (
+                        <option key={k} value={k}>{labelPeriode(k)} · {weekRange(rekapTahun, +k.slice(1))}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                {!rangkumanMingguan.key && <p style={{ ...S.muted, margin: 0 }}>Belum ada aktivitas {namaObjek} masuk atau keluar pada tahun ini.</p>}
+                {rangkumanMingguan.key && (<>
+                  <p style={{ ...S.muted, margin: '0 0 14px', fontSize: 14 }}>
+                    Periode: <strong style={{ color: '#111827' }}>{labelPeriode(rangkumanMingguan.key)}</strong> · {weekRange(rekapTahun, +rangkumanMingguan.key.slice(1))} · Tahun {rekapTahun} · {katInfo.menu}
+                  </p>
+
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Sering Mengambil {labelObjek} Keluar</div>
+                  {rangkumanMingguan.pengambil.length === 0 && <p style={{ ...S.muted, margin: '2px 0 10px' }}>Tidak ada catatan {namaObjek} keluar pada minggu ini.</p>}
+                  {rangkumanMingguan.pengambil.map((o, i) => (
+                    <div key={i} style={S.row}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{o.nama}</div>
+                        {o.keperluan && <div style={S.muted}>Keperluan terbanyak: {o.keperluan}</div>}
+                      </div>
+                      <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{o.kali} kali · {o.total} unit</div>
+                    </div>
+                  ))}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0 32px', marginTop: 18 }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>{labelObjek} Sering Masuk</div>
+                      {rangkumanMingguan.barangMasuk.length === 0 && <p style={{ ...S.muted, margin: '2px 0 10px' }}>Tidak ada catatan {namaObjek} masuk pada minggu ini.</p>}
+                      {rangkumanMingguan.barangMasuk.map((b, i) => (
+                        <div key={i} style={S.row}>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{b.nama}</div>
+                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {b.total} unit</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>{labelObjek} Sering Keluar</div>
+                      {rangkumanMingguan.barangKeluar.length === 0 && <p style={{ ...S.muted, margin: '2px 0 10px' }}>Tidak ada catatan {namaObjek} keluar pada minggu ini.</p>}
+                      {rangkumanMingguan.barangKeluar.map((b, i) => (
+                        <div key={i} style={S.row}>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{b.nama}</div>
+                          <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{b.kali} kali · {b.total} unit</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#6b7280', margin: '18px 0 4px', textTransform: 'uppercase' }}>Keterangan Keperluan ({labelObjek} Keluar)</div>
+                  {rangkumanMingguan.keperluan.length === 0 && <p style={{ ...S.muted, margin: '2px 0 0' }}>Tidak ada keterangan pada catatan {namaObjek} keluar minggu ini.</p>}
+                  {rangkumanMingguan.keperluan.map((k2, i) => (
+                    <div key={i} style={S.row}>
+                      <div style={{ fontSize: 14, color: '#111827' }}>{k2.ket}</div>
+                      <div style={{ ...S.muted, whiteSpace: 'nowrap' }}>{k2.kali} kali</div>
+                    </div>
+                  ))}
                 </>)}
               </div>
             </>)}
