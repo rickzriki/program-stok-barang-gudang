@@ -110,6 +110,7 @@ export default function Page() {
   const [fItem, setFItem] = useState('');
   const [fJumlah, setFJumlah] = useState('');
   const [fSatuanEntri, setFSatuanEntri] = useState('kemasan');
+  const [fCariEntri, setFCariEntri] = useState('');
   const [fTanggal, setFTanggal] = useState(today());
   const [fKet, setFKet] = useState('');
   const [fOleh, setFOleh] = useState('');
@@ -191,6 +192,7 @@ export default function Page() {
     setKategori(k);
     setFItem('');
     setFSatuanEntri('kemasan');
+    setFCariEntri('');
     setPeriodeAktif(null);
     setTampilForm(false);
     setErr('');
@@ -307,7 +309,7 @@ export default function Page() {
     const next = jenis === 'masuk'
       ? { ...doc, items, masuk: [entry, ...doc.masuk] }
       : { ...doc, items, keluar: [entry, ...doc.keluar] };
-    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today()); setFSatuanEntri('kemasan');
+    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today()); setFSatuanEntri('kemasan'); setFCariEntri('');
     save(next);
   };
 
@@ -720,14 +722,27 @@ export default function Page() {
                     : `Pilih ${namaObjek}, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.`}
                 </p>
                 <label style={S.label}>{labelObjek}</label>
+                <input
+                  style={{ ...S.input, marginBottom: 8 }}
+                  placeholder={`Ketik untuk mencari nama / kode ${namaObjek}...`}
+                  value={fCariEntri} onChange={e => setFCariEntri(e.target.value)}
+                />
                 <select style={S.input} value={fItem} onChange={e => { setFItem(e.target.value); setFSatuanEntri('kemasan'); }}>
                   {itemsAktif.length === 0
                     ? <option value="">— Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} —</option>
                     : <>
-                      <option value="">— Pilih {namaObjek} —</option>
-                      {itemsAktif.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama} (stok: {formatStok(i)})</option>)}
+                      <option value="">— Pilih {namaObjek} (daftar bisa digulir) —</option>
+                      {(() => {
+                        const q = fCariEntri.trim().toLowerCase();
+                        const tampil = itemsAktif.filter(i => i.id === fItem || !q || (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q));
+                        if (tampil.length === 0) return <option value="" disabled>Tidak ada {namaObjek} yang cocok dengan pencarian</option>;
+                        return tampil.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama}{i.lokasi ? ' — ' + i.lokasi : ''} (stok: {formatStok(i)})</option>);
+                      })()}
                     </>}
                 </select>
+                <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
+                  Ketik nama/kode di kotak pencarian untuk menyaring daftar, atau buka daftar di atas lalu gulir untuk memilih {namaObjek}.
+                </div>
                 {(() => {
                   const itemPilih = itemById[fItem];
                   if (!itemPilih) return null;
