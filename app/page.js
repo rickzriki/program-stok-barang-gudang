@@ -107,6 +107,7 @@ export default function Page() {
   const [fStokMin, setFStokMin] = useState('0');
   const [fLokasi, setFLokasi] = useState('');
   const [fIsi, setFIsi] = useState('');
+  const [fSatuanIsi, setFSatuanIsi] = useState('');
   const [fItem, setFItem] = useState('');
   const [fJumlah, setFJumlah] = useState('');
   const [fSatuanEntri, setFSatuanEntri] = useState('kemasan');
@@ -158,23 +159,24 @@ export default function Page() {
   const bulat4 = (n) => Math.round((n || 0) * 10000) / 10000;
   const fmtNum = (n) => bulat4(n).toLocaleString('id-ID');
   const jmlKemasan = (e) => (e && typeof e.jumlahKemasan === 'number' ? e.jumlahKemasan : ((e && e.jumlah) || 0));
+  const satIsiItem = (it) => ((it && it.satuanIsi) || 'pcs');
   const formatStok = (it) => {
     if (!it) return '—';
-    const stok = it.stok || 0, isi = it.isi || 0, sat = it.satuan || '';
+    const stok = it.stok || 0, isi = it.isi || 0, sat = it.satuan || '', satIsi = satIsiItem(it);
     if (isi > 0) {
-      const totalPcs = Math.round(stok * isi);
-      const pak = Math.floor(totalPcs / isi), sisa = totalPcs % isi;
-      if (totalPcs <= 0) return `0 ${sat}`.trim();
+      const totalIsi = Math.round(stok * isi);
+      const pak = Math.floor(totalIsi / isi), sisa = totalIsi % isi;
+      if (totalIsi <= 0) return `0 ${sat}`.trim();
       if (sisa === 0) return `${pak} ${sat}`.trim();
-      if (pak === 0) return `${sisa} pcs`;
-      return `${pak} ${sat} + ${sisa} pcs`;
+      if (pak === 0) return `${sisa} ${satIsi}`;
+      return `${pak} ${sat} + ${sisa} ${satIsi}`;
     }
     return `${fmtNum(stok)} ${sat}`.trim();
   };
   const formatJmlEntri = (e) => {
     const it = itemById[e.itemId];
     const sat = (it && it.satuan) || '';
-    if (e.satuanEntri === 'pcs') return `${fmtNum(e.jumlah)} pcs (${fmtNum(jmlKemasan(e))} ${sat})`.trim();
+    if (e.satuanEntri) return `${fmtNum(e.jumlah)} ${e.satuanEntri} (${fmtNum(jmlKemasan(e))} ${sat})`.trim();
     return `${fmtNum(e.jumlah)} ${sat}`.trim();
   };
   const kategoriItem = (it) => (it && it.kategori === 'sparepart' ? 'sparepart' : 'gudang');
@@ -247,7 +249,7 @@ export default function Page() {
   const keluarUrut = useMemo(() => urutRiwayat(keluarAktif, sortKeluar), [keluarAktif, sortKeluar]);
 
   const resetForm = () => {
-    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setFIsi(''); setEditId(null);
+    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setFIsi(''); setFSatuanIsi(''); setEditId(null);
   };
   const bukaFormTambah = () => { resetForm(); setTampilForm(true); };
   const bukaFormEdit = (it) => {
@@ -255,6 +257,7 @@ export default function Page() {
     setFKode(it.kode || ''); setFSatuan(it.satuan || ''); setFNama(it.nama || '');
     setFStokAwal(String(it.stok ?? 0)); setFStokMin(String(it.stokMin ?? 0)); setFLokasi(it.lokasi || '');
     setFIsi(it.isi ? String(it.isi) : '');
+    setFSatuanIsi(it.satuanIsi || '');
     setTampilForm(true);
   };
   const tutupForm = () => { setTampilForm(false); resetForm(); };
@@ -269,6 +272,7 @@ export default function Page() {
       stok: Math.max(0, bulat4(parseFloat(fStokAwal) || 0)),
       stokMin: Math.max(0, parseInt(fStokMin) || 0),
       isi: Math.max(0, parseInt(fIsi) || 0),
+      satuanIsi: fSatuanIsi.trim(),
       lokasi: fLokasi.trim(),
       kategori: editId ? kategoriItem(doc.items.find(i => i.id === editId)) : kategori,
     };
@@ -299,12 +303,12 @@ export default function Page() {
     if (!jumlah || jumlah <= 0) return setErr('Jumlah harus lebih dari 0.');
     const item = doc.items.find(i => i.id === fItem);
     if (!item) return setErr(`${labelObjek} tidak ditemukan.`);
-    const pakaiPcs = fSatuanEntri === 'pcs' && (item.isi || 0) > 0;
-    const jumlahKemasan = pakaiPcs ? bulat4(jumlah / item.isi) : jumlah;
+    const pakaiIsi = fSatuanEntri === 'isi' && (item.isi || 0) > 0;
+    const jumlahKemasan = pakaiIsi ? bulat4(jumlah / item.isi) : jumlah;
     if (jenis === 'keluar' && (item.stok || 0) < jumlahKemasan - 1e-9) return setErr(`Stok tidak cukup (tersisa ${formatStok(item)}).`);
     if (!fOleh.trim()) return setErr(jenis === 'masuk' ? 'Nama penerima wajib diisi.' : 'Nama pengambil wajib diisi.');
     const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(item) };
-    if (pakaiPcs) { entry.satuanEntri = 'pcs'; entry.jumlahKemasan = jumlahKemasan; }
+    if (pakaiIsi) { entry.satuanEntri = satIsiItem(item); entry.jumlahKemasan = jumlahKemasan; }
     const items = doc.items.map(i => i.id === fItem ? { ...i, stok: bulat4((i.stok || 0) + (jenis === 'masuk' ? jumlahKemasan : -jumlahKemasan)) } : i);
     const next = jenis === 'masuk'
       ? { ...doc, items, masuk: [entry, ...doc.masuk] }
@@ -647,10 +651,18 @@ export default function Page() {
                       </div>
                     </div>
                   </div>
-                  <label style={S.label}>Isi per Kemasan (pcs) <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
-                  <input style={S.input} type="number" min="0" placeholder="mis. 100 — artinya 1 kemasan berisi 100 pcs" value={fIsi} onChange={e => setFIsi(e.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+                    <div>
+                      <label style={S.label}>Isi per Kemasan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
+                      <input style={S.input} type="number" min="0" placeholder="mis. 100" value={fIsi} onChange={e => setFIsi(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={S.label}>Satuan Isi Kemasan</label>
+                      <input style={S.input} placeholder="pcs, pack, bungkus, dll" value={fSatuanIsi} onChange={e => setFSatuanIsi(e.target.value)} />
+                    </div>
+                  </div>
                   <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
-                    Diisi bila {namaObjek} ini sering diambil per pcs. Dengan angka ini, pencatatan per pcs otomatis dikonversi dari stok kemasan. Kosongkan bila selalu dicatat per kemasan.
+                    Contoh: 1 DUS berisi 100 pcs → Isi per Kemasan 100, Satuan Isi &ldquo;pcs&rdquo;. Atau 1 DUS berisi 10 pack → isi 10, satuan isi &ldquo;pack&rdquo;. Dengan angka ini, pencatatan per satuan isi otomatis dikonversi dari stok kemasan. Kosongkan bila selalu dicatat per kemasan.
                   </div>
                   <label style={S.label}>{kategori === 'gudang' ? 'Lokasi di Gudang (boleh kosong)' : 'Lokasi Sparepart (boleh kosong)'}</label>
                   <input style={S.input} placeholder={kategori === 'gudang' ? 'Rak A1, Blok B' : 'Rak sparepart, Lemari mesin'} value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
@@ -787,12 +799,12 @@ export default function Page() {
                       <label style={S.label}>Satuan Jumlah</label>
                       <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
                         <button type="button" style={S.segBtn(fSatuanEntri === 'kemasan')} onClick={() => setFSatuanEntri('kemasan')}>Per {itemPilih.satuan || 'Kemasan'}</button>
-                        <button type="button" style={S.segBtn(fSatuanEntri === 'pcs' && isiPilih > 0)} onClick={() => { if (isiPilih > 0) setFSatuanEntri('pcs'); }}>Per PCS</button>
+                        <button type="button" style={S.segBtn(fSatuanEntri === 'isi' && isiPilih > 0)} onClick={() => { if (isiPilih > 0) setFSatuanEntri('isi'); }}>Per {satIsiItem(itemPilih).toUpperCase()}</button>
                       </div>
                       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
                         {isiPilih > 0
-                          ? <>1 {itemPilih.satuan || 'kemasan'} = {fmtNum(isiPilih)} pcs · Stok sekarang: {formatStok(itemPilih)}{fSatuanEntri === 'pcs' ? ' · Jumlah di bawah diisi dalam pcs; stok kemasan berkurang otomatis.' : ''}</>
-                          : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per pcs belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
+                          ? <>1 {itemPilih.satuan || 'kemasan'} = {fmtNum(isiPilih)} {satIsiItem(itemPilih)} · Stok sekarang: {formatStok(itemPilih)}{fSatuanEntri === 'isi' ? ` · Jumlah di bawah diisi dalam ${satIsiItem(itemPilih)}; stok kemasan berkurang otomatis.` : ''}</>
+                          : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per satuan isi belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
                       </div>
                     </div>
                   );
