@@ -727,6 +727,41 @@ export default function Page() {
                   placeholder={`Ketik untuk mencari nama / kode ${namaObjek}...`}
                   value={fCariEntri} onChange={e => setFCariEntri(e.target.value)}
                 />
+                {(() => {
+                  const q = fCariEntri.trim().toLowerCase();
+                  if (!q) return null;
+                  const cocok = itemsAktif.filter(i => (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q));
+                  if (cocok.length === 0) return (
+                    <div style={{ ...S.muted, margin: '-2px 0 8px' }}>Tidak ada {namaObjek} yang cocok dengan &ldquo;{fCariEntri.trim()}&rdquo;.</div>
+                  );
+                  const tampilSaran = cocok.slice(0, 10);
+                  return (
+                    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, margin: '-2px 0 10px', overflow: 'hidden' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, color: '#6b7280', padding: '8px 12px', background: '#f9fafb', textTransform: 'uppercase' }}>
+                        {cocok.length} {namaObjek} cocok — klik untuk memilih
+                      </div>
+                      {tampilSaran.map(i => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          onClick={() => { setFItem(i.id); setFSatuanEntri('kemasan'); setFCariEntri(''); }}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', background: '#fff', border: 0, borderTop: '1px solid #eef2f7', padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          <span>
+                            <span style={{ fontWeight: 600, fontSize: 14, color: '#111827', display: 'block' }}>{i.kode ? i.kode + ' · ' : ''}{i.nama}</span>
+                            <span style={{ fontSize: 12, color: '#6b7280' }}>{i.lokasi || '—'}</span>
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: GREEN, whiteSpace: 'nowrap' }}>stok {formatStok(i)}</span>
+                        </button>
+                      ))}
+                      {cocok.length > tampilSaran.length && (
+                        <div style={{ fontSize: 12, color: '#6b7280', padding: '8px 12px', borderTop: '1px solid #eef2f7', background: '#f9fafb' }}>
+                          +{cocok.length - tampilSaran.length} lainnya — persempit kata kunci, atau gulir daftar di bawah.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <select style={S.input} value={fItem} onChange={e => { setFItem(e.target.value); setFSatuanEntri('kemasan'); }}>
                   {itemsAktif.length === 0
                     ? <option value="">— Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} —</option>
@@ -741,7 +776,7 @@ export default function Page() {
                     </>}
                 </select>
                 <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
-                  Ketik nama/kode di kotak pencarian untuk menyaring daftar, atau buka daftar di atas lalu gulir untuk memilih {namaObjek}.
+                  Ketik nama/kode lalu klik pilihan yang muncul, atau buka daftar di atas lalu gulir untuk memilih {namaObjek}.
                 </div>
                 {(() => {
                   const itemPilih = itemById[fItem];
