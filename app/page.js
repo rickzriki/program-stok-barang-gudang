@@ -253,7 +253,7 @@ export default function Page() {
     setFKode(it.kode || ''); setFSatuan(it.satuan || ''); setFNama(it.nama || '');
     setFStokAwal(String(it.stok ?? 0)); setFStokMin(String(it.stokMin ?? 0)); setFLokasi(it.lokasi || '');
     setFIsi(it.isi ? String(it.isi) : '');
-    setFSatuanIsi(it.satuanIsi || '');
+    setFSatuanIsi((it.satuanIsi || '').toUpperCase());
     setTampilForm(true);
   };
   const tutupForm = () => { setTampilForm(false); resetForm(); };
@@ -690,11 +690,15 @@ export default function Page() {
                     </div>
                     <div>
                       <label style={S.label}>Satuan Isi Kemasan</label>
-                      <input style={S.input} placeholder="pcs, pack, bungkus, dll" value={fSatuanIsi} onChange={e => setFSatuanIsi(e.target.value)} />
+                      <select style={S.input} value={fSatuanIsi} onChange={e => setFSatuanIsi(e.target.value)}>
+                        <option value="">— Belum diatur (dianggap pcs) —</option>
+                        {['PCS', 'PACK', 'KG', 'LSN'].map(s => <option key={s} value={s}>{s}</option>)}
+                        {fSatuanIsi && !['PCS', 'PACK', 'KG', 'LSN'].includes(fSatuanIsi) && <option value={fSatuanIsi}>{fSatuanIsi} (nilai lama)</option>}
+                      </select>
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
-                    Contoh: 1 DUS berisi 100 pcs → Isi per Kemasan 100, Satuan Isi &ldquo;pcs&rdquo;. Atau 1 DUS berisi 10 pack → isi 10, satuan isi &ldquo;pack&rdquo;. Dengan angka ini, pencatatan per satuan isi otomatis dikonversi dari stok kemasan. Kosongkan bila selalu dicatat per kemasan.
+                    Pilih satuan isi dari daftar (PCS, PACK, KG, LSN). Contoh: 1 DUS berisi 100 PCS → Isi per Kemasan 100, Satuan Isi PCS. Dengan angka ini, pencatatan per satuan isi otomatis dikonversi dari stok kemasan. Kosongkan bila selalu dicatat per kemasan.
                   </div>
                   <label style={S.label}>{kategori === 'gudang' ? 'Lokasi di Gudang (boleh kosong)' : 'Lokasi Sparepart (boleh kosong)'}</label>
                   <input style={S.input} placeholder={kategori === 'gudang' ? 'Rak A1, Blok B' : 'Rak sparepart, Lemari mesin'} value={fLokasi} onChange={e => setFLokasi(e.target.value)} />
