@@ -299,7 +299,7 @@ export default function Page() {
     const it = itemById[b.itemId];
     if (!it) return null;
     const j = parseInt(b.jumlah) || 0;
-    const pakaiIsi = b.satuan === 'isi' && (it.isi || 0) > 0;
+    const pakaiIsi = b.satuan !== 'kemasan' && (it.isi || 0) > 0;
     const jKemasan = pakaiIsi ? bulat4(j / it.isi) : j;
     return { it, j, pakaiIsi, jKemasan };
   };
@@ -326,6 +326,8 @@ export default function Page() {
     });
     if (parsial.length) return setErr(`Baris ${parsial.join(', ')} belum lengkap - pilih ${namaObjek} dan isi jumlah lebih dari 0, atau hapus barisnya.`);
     if (!lengkap.length) return setErr(`Isi minimal satu baris ${namaObjek} dulu.`);
+    const tanpaIsi = lengkap.filter(b => b.satuan !== 'kemasan' && (itemById[b.itemId].isi || 0) <= 0);
+    if (tanpaIsi.length) return setErr(`Isi per kemasan belum diatur untuk ${itemById[tanpaIsi[0].itemId].nama} - pencatatan per satuan isi belum bisa. Atur dulu lewat tombol Edit di menu Stok.`);
     const perItem = {};
     lengkap.forEach(b => { const info = infoBaris(b); perItem[b.itemId] = bulat4((perItem[b.itemId] || 0) + info.jKemasan); });
     if (jenis === 'keluar') {
@@ -337,7 +339,7 @@ export default function Page() {
     const entries = lengkap.map(b => {
       const info = infoBaris(b);
       const e = { id: uid(), itemId: b.itemId, jumlah: info.j, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(info.it) };
-      if (info.pakaiIsi) { e.satuanEntri = satIsiItem(info.it); e.jumlahKemasan = info.jKemasan; }
+      if (info.pakaiIsi) { e.satuanEntri = b.satuan; e.jumlahKemasan = info.jKemasan; }
       return e;
     });
     const items = doc.items.map(i => perItem[i.id] ? { ...i, stok: bulat4((i.stok || 0) + (jenis === 'masuk' ? perItem[i.id] : -perItem[i.id])) } : i);
@@ -857,19 +859,21 @@ export default function Page() {
                       {it && (
                         <div style={{ marginBottom: 12 }}>
                           <label style={S.label}>Satuan Jumlah</label>
-                          <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
-                            <button type="button" style={S.segBtn(b.satuan === 'kemasan')} onClick={() => ubahBaris(b.kunci, { satuan: 'kemasan' })}>Per {it.satuan || 'Kemasan'}</button>
-                            <button type="button" style={S.segBtn(b.satuan === 'isi' && (it.isi || 0) > 0)} onClick={() => { if ((it.isi || 0) > 0) ubahBaris(b.kunci, { satuan: 'isi' }); }}>Per {satIsiItem(it).toUpperCase()}</button>
-                          </div>
+                          <select style={S.input} value={b.satuan} onChange={e => ubahBaris(b.kunci, { satuan: e.target.value })}>
+                            <option value="kemasan">Per {it.satuan || 'Kemasan'}</option>
+                            {['BALL', 'PCS', 'PACK', 'KG', 'LSN'].filter(u => u !== (it.satuan || '').toUpperCase()).map(u => (
+                              <option key={u} value={u} disabled={(it.isi || 0) <= 0}>Per {u}</option>
+                            ))}
+                          </select>
                           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
                             {(it.isi || 0) > 0
-                              ? <>1 {it.satuan || 'kemasan'} = {fmtNum(it.isi)} {satIsiItem(it)} · Stok sekarang: {formatStok(it)}{info.j > 0 ? ` · Stok setelah baris ini: ${formatStok({ ...it, stok: stokSetelah })}` : ''}</>
+                              ? <>1 {it.satuan || 'kemasan'} = {fmtNum(it.isi)} {b.satuan === 'kemasan' ? satIsiItem(it) : b.satuan} · Stok sekarang: {formatStok(it)}{info.j > 0 ? ` · Stok setelah baris ini: ${formatStok({ ...it, stok: stokSetelah })}` : ''}</>
                               : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per satuan isi belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
                           </div>
                         </div>
                       )}
 
-                      <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}{it ? ` (${b.satuan === 'isi' ? satIsiItem(it) : (it.satuan || 'kemasan')})` : ''}</label>
+                      <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}{it ? ` (${b.satuan === 'kemasan' ? (it.satuan || 'kemasan') : b.satuan})` : ''}</label>
                       <input style={{ ...S.input, marginBottom: 0 }} type="number" min="1" placeholder={tab === 'masuk' ? 'mis. 50' : 'mis. 10'} value={b.jumlah} onChange={e => ubahBaris(b.kunci, { jumlah: e.target.value })} />
                     </div>
                   );
