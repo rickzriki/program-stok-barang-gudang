@@ -108,10 +108,8 @@ export default function Page() {
   const [fLokasi, setFLokasi] = useState('');
   const [fIsi, setFIsi] = useState('');
   const [fSatuanIsi, setFSatuanIsi] = useState('');
-  const [fItem, setFItem] = useState('');
-  const [fJumlah, setFJumlah] = useState('');
-  const [fSatuanEntri, setFSatuanEntri] = useState('kemasan');
-  const [fCariEntri, setFCariEntri] = useState('');
+  const barisBaru = () => ({ kunci: uid(), itemId: '', jumlah: '', satuan: 'kemasan', cari: '' });
+  const [baris, setBaris] = useState([barisBaru()]);
   const [fTanggal, setFTanggal] = useState(today());
   const [fKet, setFKet] = useState('');
   const [fOleh, setFOleh] = useState('');
@@ -192,9 +190,7 @@ export default function Page() {
   const keluarAktif = useMemo(() => doc.keluar.filter(e => kategoriEntri(e) === kategori), [doc.keluar, doc.items, kategori]);
   const pilihKategori = (k) => {
     setKategori(k);
-    setFItem('');
-    setFSatuanEntri('kemasan');
-    setFCariEntri('');
+    setBaris([barisBaru()]);
     setPeriodeAktif(null);
     setTampilForm(false);
     setErr('');
@@ -297,23 +293,59 @@ export default function Page() {
     save({ ...doc, items, [jenis]: list.filter(x => x.id !== id) });
   };
 
-  const catat = (jenis) => {
-    const jumlah = parseInt(fJumlah);
-    if (!fItem) return setErr(`Pilih ${namaObjek} dulu.`);
-    if (!jumlah || jumlah <= 0) return setErr('Jumlah harus lebih dari 0.');
-    const item = doc.items.find(i => i.id === fItem);
-    if (!item) return setErr(`${labelObjek} tidak ditemukan.`);
-    const pakaiIsi = fSatuanEntri === 'isi' && (item.isi || 0) > 0;
-    const jumlahKemasan = pakaiIsi ? bulat4(jumlah / item.isi) : jumlah;
-    if (jenis === 'keluar' && (item.stok || 0) < jumlahKemasan - 1e-9) return setErr(`Stok tidak cukup (tersisa ${formatStok(item)}).`);
+  const ubahBaris = (kunci, patch) => setBaris(bs => bs.map(b => b.kunci === kunci ? { ...b, ...patch } : b));
+  const hapusBaris = (kunci) => setBaris(bs => (bs.length <= 1 ? bs : bs.filter(b => b.kunci !== kunci)));
+  const infoBaris = (b) => {
+    const it = itemById[b.itemId];
+    if (!it) return null;
+    const j = parseInt(b.jumlah) || 0;
+    const pakaiIsi = b.satuan === 'isi' && (it.isi || 0) > 0;
+    const jKemasan = pakaiIsi ? bulat4(j / it.isi) : j;
+    return { it, j, pakaiIsi, jKemasan };
+  };
+  const totalPerItem = (sampaiKunci) => {
+    const map = {};
+    for (const b of baris) {
+      const info = infoBaris(b);
+      if (info && info.j > 0) map[b.itemId] = bulat4((map[b.itemId] || 0) + info.jKemasan);
+      if (sampaiKunci && b.kunci === sampaiKunci) break;
+    }
+    return map;
+  };
+
+  const simpanKeranjang = () => {
+    const jenis = tab;
     if (!fOleh.trim()) return setErr(jenis === 'masuk' ? 'Nama penerima wajib diisi.' : 'Nama pengambil wajib diisi.');
-    const entry = { id: uid(), itemId: fItem, jumlah, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(item) };
-    if (pakaiIsi) { entry.satuanEntri = satIsiItem(item); entry.jumlahKemasan = jumlahKemasan; }
-    const items = doc.items.map(i => i.id === fItem ? { ...i, stok: bulat4((i.stok || 0) + (jenis === 'masuk' ? jumlahKemasan : -jumlahKemasan)) } : i);
+    const lengkap = [];
+    const parsial = [];
+    baris.forEach((b, i) => {
+      const adaItem = !!b.itemId;
+      const adaJumlah = String(b.jumlah).trim() !== '' && (parseInt(b.jumlah) || 0) > 0;
+      if (adaItem && adaJumlah) lengkap.push(b);
+      else if (adaItem || String(b.jumlah).trim() !== '') parsial.push(i + 1);
+    });
+    if (parsial.length) return setErr(`Baris ${parsial.join(', ')} belum lengkap - pilih ${namaObjek} dan isi jumlah lebih dari 0, atau hapus barisnya.`);
+    if (!lengkap.length) return setErr(`Isi minimal satu baris ${namaObjek} dulu.`);
+    const perItem = {};
+    lengkap.forEach(b => { const info = infoBaris(b); perItem[b.itemId] = bulat4((perItem[b.itemId] || 0) + info.jKemasan); });
+    if (jenis === 'keluar') {
+      for (const itemId of Object.keys(perItem)) {
+        const it = itemById[itemId];
+        if ((it.stok || 0) < perItem[itemId] - 1e-9) return setErr(`Stok ${it.nama} tidak cukup (tersisa ${formatStok(it)}; total diminta ${fmtNum(perItem[itemId])} ${it.satuan || ''}).`);
+      }
+    }
+    const entries = lengkap.map(b => {
+      const info = infoBaris(b);
+      const e = { id: uid(), itemId: b.itemId, jumlah: info.j, tanggal: fTanggal || today(), ket: fKet.trim(), oleh: fOleh.trim(), kategori: kategoriItem(info.it) };
+      if (info.pakaiIsi) { e.satuanEntri = satIsiItem(info.it); e.jumlahKemasan = info.jKemasan; }
+      return e;
+    });
+    const items = doc.items.map(i => perItem[i.id] ? { ...i, stok: bulat4((i.stok || 0) + (jenis === 'masuk' ? perItem[i.id] : -perItem[i.id])) } : i);
     const next = jenis === 'masuk'
-      ? { ...doc, items, masuk: [entry, ...doc.masuk] }
-      : { ...doc, items, keluar: [entry, ...doc.keluar] };
-    setFJumlah(''); setFKet(''); setFOleh(''); setFTanggal(today()); setFSatuanEntri('kemasan'); setFCariEntri('');
+      ? { ...doc, items, masuk: [...entries, ...doc.masuk] }
+      : { ...doc, items, keluar: [...entries, ...doc.keluar] };
+    setBaris([barisBaru()]);
+    setFKet('');
     save(next);
   };
 
@@ -729,111 +761,122 @@ export default function Page() {
               <div style={S.panel}>
                 <h3 style={S.h3}>Catat {labelObjek} {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h3>
                 <p style={{ ...S.muted, margin: '-8px 0 14px', fontSize: 14 }}>
-                  {tab === 'masuk'
-                    ? `Pilih ${namaObjek}, isi jumlah, tanggal penerimaan, dan nama penerima.`
-                    : `Pilih ${namaObjek}, isi jumlah, tanggal pengeluaran, dan nama pengambil. Jumlah tidak boleh melebihi stok yang tersedia.`}
+                  Tanggal, nama {tab === 'masuk' ? 'penerima' : 'pengambil'}, dan keterangan cukup diisi sekali - lalu tambahkan baris untuk tiap {namaObjek}. Semua baris tersimpan sekaligus dengan satu tombol.
                 </p>
-                <label style={S.label}>{labelObjek}</label>
-                <input
-                  style={{ ...S.input, marginBottom: 8 }}
-                  placeholder={`Ketik untuk mencari nama / kode ${namaObjek}...`}
-                  value={fCariEntri} onChange={e => setFCariEntri(e.target.value)}
-                />
-                {(() => {
-                  const q = fCariEntri.trim().toLowerCase();
-                  if (!q) return null;
-                  const cocok = itemsAktif.filter(i => (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q));
-                  if (cocok.length === 0) return (
-                    <div style={{ ...S.muted, margin: '-2px 0 8px' }}>Tidak ada {namaObjek} yang cocok dengan &ldquo;{fCariEntri.trim()}&rdquo;.</div>
-                  );
-                  const tampilSaran = cocok.slice(0, 10);
-                  return (
-                    <div style={{ border: '1px solid #d1d5db', borderRadius: 10, margin: '-2px 0 10px', overflow: 'hidden' }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, color: '#6b7280', padding: '8px 12px', background: '#f9fafb', textTransform: 'uppercase' }}>
-                        {cocok.length} {namaObjek} cocok — klik untuk memilih
-                      </div>
-                      {tampilSaran.map(i => (
-                        <button
-                          key={i.id}
-                          type="button"
-                          onClick={() => { setFItem(i.id); setFSatuanEntri('kemasan'); setFCariEntri(''); }}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', background: '#fff', border: 0, borderTop: '1px solid #eef2f7', padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                        >
-                          <span>
-                            <span style={{ fontWeight: 600, fontSize: 14, color: '#111827', display: 'block' }}>{i.kode ? i.kode + ' · ' : ''}{i.nama}</span>
-                            <span style={{ fontSize: 12, color: '#6b7280' }}>{i.lokasi || '—'}</span>
-                          </span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: GREEN, whiteSpace: 'nowrap' }}>stok {formatStok(i)}</span>
-                        </button>
-                      ))}
-                      {cocok.length > tampilSaran.length && (
-                        <div style={{ fontSize: 12, color: '#6b7280', padding: '8px 12px', borderTop: '1px solid #eef2f7', background: '#f9fafb' }}>
-                          +{cocok.length - tampilSaran.length} lainnya — persempit kata kunci, atau gulir daftar di bawah.
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-                <select style={S.input} value={fItem} onChange={e => { setFItem(e.target.value); setFSatuanEntri('kemasan'); }}>
-                  {itemsAktif.length === 0
-                    ? <option value="">— Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} —</option>
-                    : <>
-                      <option value="">— Pilih {namaObjek} (daftar bisa digulir) —</option>
-                      {(() => {
-                        const q = fCariEntri.trim().toLowerCase();
-                        const tampil = itemsAktif.filter(i => i.id === fItem || !q || (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q));
-                        if (tampil.length === 0) return <option value="" disabled>Tidak ada {namaObjek} yang cocok dengan pencarian</option>;
-                        return tampil.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama}{i.lokasi ? ' — ' + i.lokasi : ''} (stok: {formatStok(i)})</option>);
-                      })()}
-                    </>}
-                </select>
-                <div style={{ fontSize: 12, color: '#6b7280', margin: '-4px 0 10px', lineHeight: 1.5 }}>
-                  Ketik nama/kode lalu klik pilihan yang muncul, atau buka daftar di atas lalu gulir untuk memilih {namaObjek}.
-                </div>
-                {(() => {
-                  const itemPilih = itemById[fItem];
-                  if (!itemPilih) return null;
-                  const isiPilih = itemPilih.isi || 0;
-                  return (
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={S.label}>Satuan Jumlah</label>
-                      <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
-                        <button type="button" style={S.segBtn(fSatuanEntri === 'kemasan')} onClick={() => setFSatuanEntri('kemasan')}>Per {itemPilih.satuan || 'Kemasan'}</button>
-                        <button type="button" style={S.segBtn(fSatuanEntri === 'isi' && isiPilih > 0)} onClick={() => { if (isiPilih > 0) setFSatuanEntri('isi'); }}>Per {satIsiItem(itemPilih).toUpperCase()}</button>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
-                        {isiPilih > 0
-                          ? <>1 {itemPilih.satuan || 'kemasan'} = {fmtNum(isiPilih)} {satIsiItem(itemPilih)} · Stok sekarang: {formatStok(itemPilih)}{fSatuanEntri === 'isi' ? ` · Jumlah di bawah diisi dalam ${satIsiItem(itemPilih)}; stok kemasan berkurang otomatis.` : ''}</>
-                          : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per satuan isi belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
-                      </div>
-                    </div>
-                  );
-                })()}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
-                  <div>
-                    <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}</label>
-                    <input style={S.input} type="number" min="1" placeholder={tab === 'masuk' ? 'mis. 50' : 'mis. 10'} value={fJumlah} onChange={e => setFJumlah(e.target.value)} />
-                  </div>
                   <div>
                     <label style={S.label}>{tab === 'masuk' ? 'Tanggal Masuk' : 'Tanggal Keluar'}</label>
                     <input style={S.input} type="date" value={fTanggal} onChange={e => setFTanggal(e.target.value)} />
                   </div>
+                  <div>
+                    <label style={S.label}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'} <span style={{ color: '#dc2626' }}>*</span> <span style={{ ...S.muted, fontWeight: 400 }}>(wajib diisi)</span></label>
+                    <input
+                      style={S.input}
+                      placeholder={tab === 'masuk' ? `mis. Nama penerima ${namaObjek}` : `mis. Nama yang mengambil ${namaObjek}`}
+                      value={fOleh} onChange={e => setFOleh(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <label style={S.label}>{tab === 'masuk' ? 'Diterima Oleh' : 'Diambil Oleh'} <span style={{ color: '#dc2626' }}>*</span> <span style={{ ...S.muted, fontWeight: 400 }}>(wajib diisi)</span></label>
-                <input
-                  style={S.input}
-                  placeholder={tab === 'masuk' ? `mis. Nama penerima ${namaObjek}` : `mis. Nama yang mengambil ${namaObjek}`}
-                  value={fOleh} onChange={e => setFOleh(e.target.value)}
-                />
-                <label style={S.label}>Keterangan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
+                <label style={S.label}>Keterangan <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong, berlaku untuk semua baris)</span></label>
                 <input
                   style={S.input}
                   placeholder={tab === 'masuk' ? 'mis. Kiriman dari pemasok, no. surat jalan' : 'mis. Dikirim ke toko cabang, diambil kurir'}
                   value={fKet} onChange={e => setFKet(e.target.value)}
                 />
-                <button style={{ ...S.btn, background: GREEN, color: '#fff', marginTop: 4 }} onClick={() => catat(tab)}>
-                  {tab === 'masuk' ? `Simpan ${labelObjek} Masuk` : `Simpan ${labelObjek} Keluar`}
-                </button>
+
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: '#6b7280', margin: '6px 0 10px', textTransform: 'uppercase' }}>Daftar {labelObjek} ({baris.length} baris)</div>
+
+                {baris.map((b, idx) => {
+                  const info = infoBaris(b);
+                  const it = info ? info.it : null;
+                  const q = b.cari.trim().toLowerCase();
+                  const cocok = q ? itemsAktif.filter(i => (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q)) : [];
+                  const tampilDaftar = itemsAktif.filter(i => i.id === b.itemId || !q || (i.nama || '').toLowerCase().includes(q) || (i.kode || '').toLowerCase().includes(q));
+                  const dipakaiSdBarisIni = info && info.j > 0 ? (totalPerItem(b.kunci)[b.itemId] || 0) : 0;
+                  const stokSetelah = info ? bulat4((it.stok || 0) + (tab === 'masuk' ? dipakaiSdBarisIni : -dipakaiSdBarisIni)) : 0;
+                  return (
+                    <div key={b.kunci} style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fcfcfd' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>Baris {idx + 1}{it ? ` - ${it.kode ? it.kode + ' · ' : ''}${it.nama}` : ''}</div>
+                        {baris.length > 1 && (
+                          <button type="button" style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '5px 11px', fontSize: 12 }} onClick={() => hapusBaris(b.kunci)}>Hapus Baris</button>
+                        )}
+                      </div>
+
+                      <label style={S.label}>{labelObjek}</label>
+                      <input
+                        style={{ ...S.input, marginBottom: 8 }}
+                        placeholder={`Ketik untuk mencari nama / kode ${namaObjek}...`}
+                        value={b.cari} onChange={e => ubahBaris(b.kunci, { cari: e.target.value })}
+                      />
+                      {q && (
+                        cocok.length === 0
+                          ? <div style={{ ...S.muted, margin: '-2px 0 8px' }}>Tidak ada {namaObjek} yang cocok dengan &ldquo;{b.cari.trim()}&rdquo;.</div>
+                          : (
+                            <div style={{ border: '1px solid #d1d5db', borderRadius: 10, margin: '-2px 0 10px', overflow: 'hidden' }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.6, color: '#6b7280', padding: '8px 12px', background: '#f9fafb', textTransform: 'uppercase' }}>
+                                {cocok.length} {namaObjek} cocok - klik untuk memilih
+                              </div>
+                              {cocok.slice(0, 10).map(i => (
+                                <button
+                                  key={i.id}
+                                  type="button"
+                                  onClick={() => ubahBaris(b.kunci, { itemId: i.id, satuan: 'kemasan', cari: '' })}
+                                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', background: '#fff', border: 0, borderTop: '1px solid #eef2f7', padding: '10px 12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                  <span>
+                                    <span style={{ fontWeight: 600, fontSize: 14, color: '#111827', display: 'block' }}>{i.kode ? i.kode + ' · ' : ''}{i.nama}</span>
+                                    <span style={{ fontSize: 12, color: '#6b7280' }}>{i.lokasi || '-'}</span>
+                                  </span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: GREEN, whiteSpace: 'nowrap' }}>stok {formatStok(i)}</span>
+                                </button>
+                              ))}
+                              {cocok.length > 10 && (
+                                <div style={{ fontSize: 12, color: '#6b7280', padding: '8px 12px', borderTop: '1px solid #eef2f7', background: '#f9fafb' }}>
+                                  +{cocok.length - 10} lainnya - persempit kata kunci, atau gulir daftar di bawah.
+                                </div>
+                              )}
+                            </div>
+                          )
+                      )}
+                      <select style={S.input} value={b.itemId} onChange={e => ubahBaris(b.kunci, { itemId: e.target.value, satuan: 'kemasan' })}>
+                        {itemsAktif.length === 0
+                          ? <option value="">- Belum ada {namaObjek}, tambahkan dulu di menu Stok {labelObjek} -</option>
+                          : <>
+                            <option value="">- Pilih {namaObjek} (daftar bisa digulir) -</option>
+                            {tampilDaftar.length === 0
+                              ? <option value="" disabled>Tidak ada {namaObjek} yang cocok dengan pencarian</option>
+                              : tampilDaftar.map(i => <option key={i.id} value={i.id}>{i.kode ? i.kode + ' · ' : ''}{i.nama}{i.lokasi ? ' - ' + i.lokasi : ''} (stok: {formatStok(i)})</option>)}
+                          </>}
+                      </select>
+
+                      {it && (
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={S.label}>Satuan Jumlah</label>
+                          <div style={{ display: 'inline-flex', background: '#e5e7eb', borderRadius: 10, padding: 4, gap: 4 }}>
+                            <button type="button" style={S.segBtn(b.satuan === 'kemasan')} onClick={() => ubahBaris(b.kunci, { satuan: 'kemasan' })}>Per {it.satuan || 'Kemasan'}</button>
+                            <button type="button" style={S.segBtn(b.satuan === 'isi' && (it.isi || 0) > 0)} onClick={() => { if ((it.isi || 0) > 0) ubahBaris(b.kunci, { satuan: 'isi' }); }}>Per {satIsiItem(it).toUpperCase()}</button>
+                          </div>
+                          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
+                            {(it.isi || 0) > 0
+                              ? <>1 {it.satuan || 'kemasan'} = {fmtNum(it.isi)} {satIsiItem(it)} · Stok sekarang: {formatStok(it)}{info.j > 0 ? ` · Stok setelah baris ini: ${formatStok({ ...it, stok: stokSetelah })}` : ''}</>
+                              : <>Isi per kemasan belum diatur untuk {namaObjek} ini, jadi pencatatan per satuan isi belum bisa. Atur lewat tombol Edit di menu Stok {labelObjek}.</>}
+                          </div>
+                        </div>
+                      )}
+
+                      <label style={S.label}>{tab === 'masuk' ? 'Jumlah Masuk' : 'Jumlah Keluar'}{it ? ` (${b.satuan === 'isi' ? satIsiItem(it) : (it.satuan || 'kemasan')})` : ''}</label>
+                      <input style={{ ...S.input, marginBottom: 0 }} type="number" min="1" placeholder={tab === 'masuk' ? 'mis. 50' : 'mis. 10'} value={b.jumlah} onChange={e => ubahBaris(b.kunci, { jumlah: e.target.value })} />
+                    </div>
+                  );
+                })}
+
+                <button type="button" style={{ ...S.btn, background: '#eef2f7', color: GREEN, marginBottom: 12 }} onClick={() => setBaris(bs => [...bs, barisBaru()])}>+ Tambah Baris</button>
+                <div>
+                  <button style={{ ...S.btn, background: GREEN, color: '#fff' }} onClick={simpanKeranjang}>
+                    Simpan Semua ({baris.filter(b => b.itemId && (parseInt(b.jumlah) || 0) > 0).length} {labelObjek})
+                  </button>
+                </div>
               </div>
 
               <h3 style={S.h3b}>Riwayat {labelObjek} {tab === 'masuk' ? 'Masuk' : 'Keluar'}</h3>
