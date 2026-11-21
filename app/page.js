@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -108,6 +108,9 @@ export default function Page() {
   const [fLokasi, setFLokasi] = useState('');
   const [fIsi, setFIsi] = useState('');
   const [fSatuanIsi, setFSatuanIsi] = useState('');
+  const [fFoto, setFFoto] = useState('');
+  const [uploadFoto, setUploadFoto] = useState(false);
+  const inputFotoRef = useRef(null);
   const barisBaru = () => ({ kunci: uid(), itemId: '', jumlah: '', satuan: 'kemasan', cari: '' });
   const [baris, setBaris] = useState([barisBaru()]);
   const [fTanggal, setFTanggal] = useState(today());
@@ -245,7 +248,7 @@ export default function Page() {
   const keluarUrut = useMemo(() => urutRiwayat(keluarAktif, sortKeluar), [keluarAktif, sortKeluar]);
 
   const resetForm = () => {
-    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setFIsi(''); setFSatuanIsi(''); setEditId(null);
+    setFKode(''); setFSatuan(''); setFNama(''); setFStokAwal('0'); setFStokMin('0'); setFLokasi(''); setFIsi(''); setFSatuanIsi(''); setFFoto(''); setEditId(null);
   };
   const bukaFormTambah = () => { resetForm(); setTampilForm(true); };
   const bukaFormEdit = (it) => {
@@ -254,9 +257,46 @@ export default function Page() {
     setFStokAwal(String(it.stok ?? 0)); setFStokMin(String(it.stokMin ?? 0)); setFLokasi(it.lokasi || '');
     setFIsi(it.isi ? String(it.isi) : '');
     setFSatuanIsi((it.satuanIsi || '').toUpperCase());
+    setFFoto(it.foto || '');
     setTampilForm(true);
   };
   const tutupForm = () => { setTampilForm(false); resetForm(); };
+
+  /* ---------- Foto Sparepart: kompres di client lalu upload ke /api/upload ---------- */
+  const kompresFoto = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 800;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => (b ? resolve(b) : reject(new Error('gagal kompres'))), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('file bukan gambar')); };
+    img.src = url;
+  });
+  const onPilihFoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return setErr('Pilih file gambar (JPG/PNG).');
+    setUploadFoto(true);
+    try {
+      const kecil = await kompresFoto(file);
+      const fd = new FormData();
+      fd.append('file', kecil, 'foto.jpg');
+      const r = await fetch('/api/upload', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!r.ok || !j.ok || !j.url) throw new Error('upload gagal');
+      setFFoto(j.url);
+    } catch { setErr('Gagal mengunggah foto. Coba lagi.'); }
+    setUploadFoto(false);
+  };
 
   const simpanBarang = () => {
     const nama = fNama.trim();
@@ -270,6 +310,7 @@ export default function Page() {
       isi: Math.max(0, parseInt(fIsi) || 0),
       satuanIsi: fSatuanIsi.trim(),
       lokasi: fLokasi.trim(),
+      foto: fFoto.trim(),
       kategori: editId ? kategoriItem(doc.items.find(i => i.id === editId)) : kategori,
     };
     const next = editId
@@ -660,7 +701,7 @@ export default function Page() {
                 <div style={S.panel}>
                   <h3 style={S.h3}>{editId ? `Edit ${labelObjek}` : `Tambah ${labelObjek} Baru`}</h3>
                   <p style={{ ...S.muted, margin: '-8px 0 14px' }}>Isi data {namaObjek} di bawah ini, lalu simpan.</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: kategori === 'sparepart' ? '1fr 1fr auto' : '1fr 1fr', gap: '0 12px', alignItems: 'start' }}>
                     <div>
                       <label style={S.label}>Kode {labelObjek}</label>
                       <input style={S.input} placeholder={kategori === 'gudang' ? 'BRG-001' : 'SPR-001'} value={fKode} onChange={e => setFKode(e.target.value)} />
@@ -669,6 +710,27 @@ export default function Page() {
                       <label style={S.label}>Satuan</label>
                       <input style={S.input} placeholder="pcs, dus, kg, liter" value={fSatuan} onChange={e => setFSatuan(e.target.value)} />
                     </div>
+                    {kategori === 'sparepart' && (
+                      <div>
+                        <label style={S.label}>Foto Sparepart <span style={{ ...S.muted, fontWeight: 400 }}>(boleh kosong)</span></label>
+                        <div
+                          onClick={() => { if (!uploadFoto && inputFotoRef.current) inputFotoRef.current.click(); }}
+                          title="Klik untuk upload foto"
+                          style={{ width: 104, height: 104, border: '1px solid #d1d5db', borderRadius: 8, background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'pointer', marginBottom: 6 }}
+                        >
+                          {fFoto
+                            ? <img src={fFoto} alt="Foto sparepart" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <span style={{ color: '#9ca3af', fontSize: 12, textAlign: 'center', lineHeight: 1.5, padding: 6 }}>{uploadFoto ? 'Mengunggah…' : '+ Foto'}</span>}
+                        </div>
+                        <input ref={inputFotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onPilihFoto} />
+                        {fFoto && (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button type="button" style={{ ...S.btn, background: '#e5e7eb', color: '#374151', padding: '4px 10px', fontSize: 12 }} onClick={() => inputFotoRef.current && inputFotoRef.current.click()}>Ganti</button>
+                            <button type="button" style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '4px 10px', fontSize: 12 }} onClick={() => setFFoto('')}>Hapus</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <label style={S.label}>Nama {labelObjek}</label>
                   <input style={S.input} placeholder={kategori === 'gudang' ? 'Beras Premium 5 kg' : 'mis. Bearing 6204, V-belt, sensor'} value={fNama} onChange={e => setFNama(e.target.value)} />
@@ -727,7 +789,14 @@ export default function Page() {
                       {stokUrut.map(it => (
                         <tr key={it.id}>
                           <td style={{ ...S.td, fontFamily: 'ui-monospace, monospace', color: '#374151' }}>{it.kode || '—'}</td>
-                          <td style={{ ...S.td, fontWeight: 600 }}>{it.nama}</td>
+                          <td style={{ ...S.td, fontWeight: 600 }}>
+                            {kategori === 'sparepart' && it.foto ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <img src={it.foto} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
+                                {it.nama}
+                              </span>
+                            ) : it.nama}
+                          </td>
                           <td style={S.td}>{it.lokasi || '—'}</td>
                           <td style={{ ...S.td, fontWeight: 700, fontFamily: 'ui-monospace, monospace' }}>{formatStok(it)}</td>
                           <td style={S.td}>{it.satuan || '—'}</td>
