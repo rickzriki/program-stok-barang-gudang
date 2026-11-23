@@ -110,6 +110,15 @@ export default function Page() {
   const [fSatuanIsi, setFSatuanIsi] = useState('');
   const [fFoto, setFFoto] = useState('');
   const [uploadFoto, setUploadFoto] = useState(false);
+  const [fotoLihat, setFotoLihat] = useState(null); // { src, nama } — foto yang sedang dilihat ukuran besar
+
+  /* Tutup lightbox foto dengan tombol Escape */
+  useEffect(() => {
+    if (!fotoLihat) return;
+    const h = (e) => { if (e.key === 'Escape') setFotoLihat(null); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [fotoLihat]);
   const inputFotoRef = useRef(null);
   const barisBaru = () => ({ kunci: uid(), itemId: '', jumlah: '', satuan: 'kemasan', cari: '' });
   const [baris, setBaris] = useState([barisBaru()]);
@@ -725,6 +734,7 @@ export default function Page() {
                         <input ref={inputFotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onPilihFoto} />
                         {fFoto && (
                           <div style={{ display: 'flex', gap: 6 }}>
+                            <button type="button" style={{ ...S.btn, background: '#dcfce7', color: '#166534', padding: '4px 10px', fontSize: 12 }} onClick={() => setFotoLihat({ src: fFoto, nama: fNama.trim() || 'Foto Sparepart' })}>Lihat</button>
                             <button type="button" style={{ ...S.btn, background: '#e5e7eb', color: '#374151', padding: '4px 10px', fontSize: 12 }} onClick={() => inputFotoRef.current && inputFotoRef.current.click()}>Ganti</button>
                             <button type="button" style={{ ...S.btn, background: '#fee2e2', color: '#b91c1c', padding: '4px 10px', fontSize: 12 }} onClick={() => setFFoto('')}>Hapus</button>
                           </div>
@@ -792,7 +802,7 @@ export default function Page() {
                           <td style={{ ...S.td, fontWeight: 600 }}>
                             {kategori === 'sparepart' && it.foto ? (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                                <img src={it.foto} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
+                                <img src={it.foto} alt="" title="Klik untuk melihat foto" onClick={() => setFotoLihat({ src: it.foto, nama: it.nama })} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0, cursor: 'pointer' }} />
                                 {it.nama}
                               </span>
                             ) : it.nama}
@@ -1196,6 +1206,21 @@ export default function Page() {
             </>)}
 
           </>)}
+
+          {fotoLihat && (
+            <div
+              onClick={() => setFotoLihat(null)}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, cursor: 'pointer' }}
+            >
+              <div style={{ position: 'relative', maxWidth: 720, width: '100%' }} onClick={e => e.stopPropagation()}>
+                <img src={fotoLihat.src} alt={fotoLihat.nama} style={{ width: '100%', maxHeight: '78vh', objectFit: 'contain', borderRadius: 12, background: '#fff', display: 'block' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 12 }}>
+                  <span style={{ color: '#fff', fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fotoLihat.nama}</span>
+                  <button type="button" style={{ ...S.btn, background: '#fff', color: '#111827', padding: '8px 18px', fontSize: 14, flexShrink: 0 }} onClick={() => setFotoLihat(null)}>Tutup</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
